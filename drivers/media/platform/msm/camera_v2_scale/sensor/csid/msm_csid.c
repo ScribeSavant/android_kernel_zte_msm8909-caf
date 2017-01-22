@@ -45,10 +45,6 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
-#ifdef CONFIG_MACH_HUAWEI
-extern bool huawei_cam_is_factory_mode(void);
-#endif
-
 static struct msm_cam_clk_info csid_clk_info[CSID_NUM_CLK_MAX];
 static struct msm_cam_clk_info csid_clk_src_info[CSID_NUM_CLK_MAX];
 
@@ -222,34 +218,12 @@ static irqreturn_t msm_csid_irq(int irq_num, void *data)
 	}
 	irq = msm_camera_io_r(csid_dev->base +
 		csid_dev->ctrl_reg->csid_reg.csid_irq_status_addr);
-
-#ifdef CONFIG_MACH_HUAWEI
-	if(huawei_cam_is_factory_mode() || csid_dev->csid_sof_debug == 1)
-	{
-		if(csid_dev->pdev)
-		{
-			pr_err("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
-				   __func__, csid_dev->pdev->id, irq);
-		}
-		else
-		{
-			pr_err("%s:%d csid_dev->pdev NULL\n", __func__, __LINE__);
-		}
-	}
-	else
-	{
-		CDBG("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
-			 __func__, csid_dev->pdev->id, irq);
-	}
-#else
 	if (csid_dev->csid_sof_debug == 1)
 		pr_err("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
 			 __func__, csid_dev->pdev->id, irq);
 	else
 		CDBG("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
 			 __func__, csid_dev->pdev->id, irq);
-#endif
-
 	if (irq & (0x1 <<
 		csid_dev->ctrl_reg->csid_reg.csid_rst_done_irq_bitshift))
 		complete(&csid_dev->reset_complete);
@@ -275,18 +249,7 @@ static int msm_csid_irq_routine(struct v4l2_subdev *sd, u32 status,
 {
 	struct csid_device *csid_dev = v4l2_get_subdevdata(sd);
 	irqreturn_t ret;
-#ifdef CONFIG_MACH_HUAWEI
-	if(huawei_cam_is_factory_mode())
-	{
-		pr_err("%s E\n", __func__);
-	}
-	else
-	{
-		CDBG("%s E\n", __func__);
-	}
-#else
 	CDBG("%s E\n", __func__);
-#endif
 	ret = msm_csid_irq(csid_dev->irq->start, csid_dev);
 	*handled = TRUE;
 	return 0;
