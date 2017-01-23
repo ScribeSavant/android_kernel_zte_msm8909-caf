@@ -1232,9 +1232,6 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
                          conf_array.data_type);
                 }
             }
-#ifdef CONFIG_HUAWEI_DSM
-		//move DSM_CAMERA_I2C_ERR to msm_cci
-#endif
             if (conf_array.delay > 20)
                 msleep(conf_array.delay);
             else if (conf_array.delay)

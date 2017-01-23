@@ -29,7 +29,6 @@
 #include "msm_vb2.h"
 #include "msm_sd.h"
 #include <media/msmb_generic_buf_mgr.h>
-#include <linux/jiffies.h>
 
 static struct v4l2_device *msm_v4l2_dev;
 static struct list_head    ordered_sd_list;
@@ -731,8 +730,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	struct msm_command *cmd;
 	int session_id, stream_id;
 	unsigned long flags = 0;
-	uint32_t start_time = 0;
-	uint32_t cost_time = 0;
 
 	session_id = event_data->session_id;
 	stream_id = event_data->stream_id;
@@ -778,22 +775,11 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 				__func__, __LINE__);
 		return rc;
 	}
-	start_time = jiffies;
-	do{
-		/* should wait on session based condition */
-		rc = wait_for_completion_timeout(&cmd_ack->wait_complete,
+
+	/* should wait on session based condition */
+	rc = wait_for_completion_timeout(&cmd_ack->wait_complete,
 			msecs_to_jiffies(timeout));
-		cost_time = (jiffies-start_time)*1000/HZ;
-		if(rc == -ERESTARTSYS)
-		{
-			pr_err("%s: rc == -ERESTARTSYS \n",__func__);
-			continue;
-		}
-		else
-		{
-			break;
-		}
-	}while(cost_time < timeout);
+
 
 	if (list_empty_careful(&cmd_ack->command_q.list)) {
 		if (!rc) {
@@ -802,8 +788,8 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 			mutex_unlock(&session->lock);
 			return -ETIMEDOUT;
 		} else {
-			pr_err("%s: Error: rc=%d  No timeout but list empty!",
-					__func__, rc);
+			pr_err("%s: Error: No timeout but list empty!",
+					__func__);
 			msm_print_event_error(event);
 			mutex_unlock(&session->lock);
 			return -EINVAL;
