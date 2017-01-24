@@ -39,10 +39,11 @@ dtb-$(CONFIG_ARCH_MSM8909) += 	msm8909-qrd-scl-al00_vc.dtb \
 	msm8909-qrd-scl-u21_va.dtb \
 	msm8909-qrd-scl-l03_vb.dtb \
 	msm8909-qrd-scl-l03_va.dtb \
+	msm8909-qrd-scl-l04_va.dtb \
 	msm8909-qrd-scl-al_va.dtb \
 	msm8909-qrd-scl-u23_va.dtb \
 	msm8909-qrd-scl-u03_va.dtb \
-	msm8909-qrd-scl-tl00h_vb.dtb \
+	msm8909-qrd-scl-tl10_vb.dtb \
 	msm8909-qrd-scl-l02_va.dtb \
 	msm8909-qrd-scl-l02_vb.dtb \
 	msm8909-qrd-scl-l01_vb.dtb \
@@ -50,6 +51,7 @@ dtb-$(CONFIG_ARCH_MSM8909) += 	msm8909-qrd-scl-al00_vc.dtb \
 	msm8909-qrd-scl-cl_vc.dtb \
 	msm8909-qrd-scl-cl_va.dtb \
 	msm8909-qrd-scl-u21_vb.dtb \
+	msm8909-qrd-scl-u31_va.dtb \
 	msm8909-qrd-scl-al00_va.dtb
 endif
 else
