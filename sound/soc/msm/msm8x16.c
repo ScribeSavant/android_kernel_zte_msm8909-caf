@@ -3950,9 +3950,15 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_MACH_HUAWEI
+#ifdef CONFIG_MACH_SCALE
+	/*Get GPIO num for SPK ext-boost-en ctl*/
+	spk_en_gpio = of_get_named_gpio(pdev->dev.of_node,
+					"qcom,ext_boost_en", 0);
+#else
 	/*Get GPIO num for SPK-PA ext buck-boost ctl*/
 	spk_en_gpio = of_get_named_gpio(pdev->dev.of_node,
 					"qcom,spk-buck-boost", 0);
+#endif
 	if (spk_en_gpio < 0) {
 		pr_err("%s: failed to get spk_en_gpio\n", __func__);
 	}
