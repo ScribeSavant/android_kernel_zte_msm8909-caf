@@ -54,7 +54,9 @@ static  uint32_t bg_ratio_typical = 0x257;   //the average of 4 Golden samples' 
 #define IMX219_MMI_OTP_LSC_FLAG          (1 << 3)
 
 //the value used for vcm effect, maybe modified by others
-#define IMX219_OTP_VCM_OFFSET_VALUE       80
+#define IMX219_LITEON_OTP_VCM_OFFSET_VALUE      80
+#define IMX219_OFILM_OTP_VCM_OFFSET_VALUE       (200)
+#define IMX219_OTP_VCM_END_MAX                  1023
 typedef enum {
 	SUNNY_MODULE_VENDOR_ID = 1,
 	FOXCONN_MODULE_VENDOR_ID,
@@ -63,7 +65,7 @@ typedef enum {
 	BYD_MODULE_VENDOR_ID,
 	OFILM_MODULE_VENDOR_ID
 }camera_module_vendor_id;
-
+static uint8_t  imx219_otp_vendor_module = 0xFF;
 static uint16_t imx219_vcm_start = 0;
 static uint16_t imx219_vcm_end   = 0;
 static uint32_t OTPSUMVAL        = 0;
@@ -197,9 +199,11 @@ static bool imx219_otp_read_id(struct msm_sensor_ctrl_t *s_ctrl)
 	vendor_id = buf[4]>>4;
 	if (vendor_id == LITEON_MODULE_VENDOR_ID && buf[3] == 0x98) { //Liteon 0x03 & huaweiModuleCode is 23060152(152 = 0x98)
 		imx219_otp_flag |= IMX219_OTP_ID_READ;
+		imx219_otp_vendor_module = LITEON_MODULE_VENDOR_ID;
 		return true;
 	} else if (vendor_id == OFILM_MODULE_VENDOR_ID && buf[3] == 0x98) {
 		imx219_otp_flag |= IMX219_OTP_ID_READ;
+		imx219_otp_vendor_module = OFILM_MODULE_VENDOR_ID;
 		return true;
 	} else {
 		pr_err("%s OTP data is worng for with wrong vender id!!!\n",__func__);
@@ -327,7 +331,8 @@ static bool imx219_otp_set_lsc(struct msm_sensor_ctrl_t *s_ctrl)
 static bool imx219_otp_read_vcm(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	uint8_t buf[4] = {0};
-    uint16_t start_code,end_code;
+	uint16_t start_code,end_code;
+	uint8_t	vcm_offset_value = 0;
 
 	pr_debug("enter %s", __func__);
 
@@ -362,17 +367,45 @@ static bool imx219_otp_read_vcm(struct msm_sensor_ctrl_t *s_ctrl)
 		return false;
 	}
 
-	if (imx219_vcm_start <= IMX219_OTP_VCM_OFFSET_VALUE)
+	switch (imx219_otp_vendor_module)
+	{
+		case LITEON_MODULE_VENDOR_ID:
+		{
+		    pr_info("imx219 otp is liteon module!\n");
+			vcm_offset_value = IMX219_LITEON_OTP_VCM_OFFSET_VALUE;
+			break;
+		}
+		case OFILM_MODULE_VENDOR_ID:
+		{
+		    pr_info("imx219 otp is ofilm module!\n");
+			vcm_offset_value = IMX219_OFILM_OTP_VCM_OFFSET_VALUE;
+			break;
+		}
+		default:
+		{
+			pr_err("%s imx219_otp_vendor_module = %d is wrong!\n",__func__,imx219_otp_vendor_module);
+			return false;
+		}
+	}
+
+	pr_info("%s vcm_offset_value = %d\n",__func__,vcm_offset_value);
+
+	if (imx219_vcm_start <= vcm_offset_value)
 	{
 		pr_err("%s, imx219_vcm_start = 0x%x\n", __func__,imx219_vcm_start);
 		imx219_vcm_start = 0;
 	}
 	else
 	{
-		imx219_vcm_start -= IMX219_OTP_VCM_OFFSET_VALUE;
+		imx219_vcm_start -= vcm_offset_value;
 	}
 
-	imx219_vcm_end += IMX219_OTP_VCM_OFFSET_VALUE;
+	imx219_vcm_end += vcm_offset_value;
+
+	if (imx219_vcm_end >= IMX219_OTP_VCM_END_MAX)
+	{
+		imx219_vcm_end = IMX219_OTP_VCM_END_MAX;
+	}
 
 	s_ctrl->afc_otp_info.starting_dac = imx219_vcm_start;
 	s_ctrl->afc_otp_info.infinity_dac = imx219_vcm_start;
