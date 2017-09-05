@@ -309,15 +309,10 @@
 		st,axis-map-x = <0>;
 		st,axis-map-y = <1>;
 		st,axis-map-z = <2>;
-		/*1 is bottom and others means top*/
-                st,axis-map-bottom=<1>;
 		st,g-range = <2>;
 		st,gpio-int1 = <&msm_gpio 96 0x2002>;
-		/delete-property/st,negate-x;
-		st,negate-z;
+		st,negate-x;
 		st,negate-y;
-		st,i2c-scl-gpio = <&msm_gpio 7 0x0>;
-		st,i2c-sda-gpio = <&msm_gpio 6 0x0>;
 	};
 
 	tps65132@3e {
