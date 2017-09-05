@@ -112,7 +112,7 @@
 				/* bit11 Palm off screen                                */
 				cy,easy_wakeup_supported_gestures = <0xF81>;
 
-				/*Defination of report key value  for different gestures*/
+				/*Definition of report key value  for different gestures*/
 				cy,easy_wakeup_gesture_keys =
 				<	143 /*0.Double tap:KEY_F1*/
 					60 /*1.Single finger slide from left to right*/
