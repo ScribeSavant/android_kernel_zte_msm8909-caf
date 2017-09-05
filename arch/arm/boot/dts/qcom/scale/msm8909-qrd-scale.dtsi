@@ -313,10 +313,6 @@
                 st,axis-map-bottom=<1>;
 		st,g-range = <2>;
 		st,gpio-int1 = <&msm_gpio 96 0x2002>;
-		st,negate-x;
-		st,negate-y;
-		st,negate-z;
-		st,enable-int;
 		/delete-property/st,negate-x;
 		st,negate-z;
 		st,negate-y;
