@@ -52,7 +52,9 @@ dtb-$(CONFIG_ARCH_MSM8909) += 	msm8909-qrd-scl-al00_vc.dtb \
 	msm8909-qrd-scl-cl_va.dtb \
 	msm8909-qrd-scl-u21_vb.dtb \
 	msm8909-qrd-scl-u31_va.dtb \
-	msm8909-qrd-scl-al00_va.dtb
+	msm8909-qrd-scl-al00_va.dtb \
+	msm8909-qrd-scc-u21_va.dtb \
+	msm8909-qrd-scc-u21_vb.dtb
 endif
 else
 dtb-$(CONFIG_ARCH_MSM8909) += msm8909-sim.dtb \
