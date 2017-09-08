@@ -207,7 +207,7 @@ static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
 	{760,	480},
 	{780,	471},
 	{800,	463},
-#elif defined(CONFIG_MACH_HUAWEI || CONFIG_MACH_SCALE)
+#elif defined(CONFIG_MACH_HUAWEI)
 	{-300,  1609},
 	{-200,  1512},
 	{-100,  1391},
@@ -375,7 +375,7 @@ static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
 	{770,	213},
 	{780,	208},
 	{790,	203}
-#endif /* CONFIG_MACH_RENDANG || CONFIG_MACH_JALEBI || CONFIG_MACH_CP8675 || CONFIG_MACH_HUAWEI || CONFIG_MACH_SCALE */
+#endif /* CONFIG_MACH_RENDANG || CONFIG_MACH_JALEBI || CONFIG_MACH_CP8675 || CONFIG_MACH_HUAWEI */
 };
 
 static const struct qpnp_vadc_map_pt adcmap_qrd_btm_threshold[] = {
@@ -585,7 +585,7 @@ static const struct qpnp_vadc_map_pt adcmap_qrd_skuh_btm_threshold[] = {
 	{700,	579},
 	{720,	574},
 	{740,	571},
-#elif defined(CONFIG_MACH_HUAWEI || CONFIG_MACH_SCALE)
+#elif defined(CONFIG_MACH_HUAWEI)
 	{-300,  1609},
 	{-200,  1512},
 	{-100,  1391},
@@ -725,7 +725,7 @@ static const struct qpnp_vadc_map_pt adcmap_qrd_skuh_btm_threshold[] = {
 	{840,	530},
 	{860,	524},
 	{880,	520},
-#endif /* CONFIG_MACH_RENDANG || CONFIG_MACH_HUAWEI || CONFIG_MACH_SCALE */
+#endif /* CONFIG_MACH_RENDANG || CONFIG_MACH_HUAWEI */
 };
 
 static const struct qpnp_vadc_map_pt adcmap_qrd_skuc_btm_threshold[] = {
@@ -967,7 +967,7 @@ static const struct qpnp_vadc_map_pt adcmap_150k_104ef_104fb[] = {
 };
 
 static const struct qpnp_vadc_map_pt adcmap_smb_batt_therm[] = {
-#ifdef CONFIG_MACH_HUAWEI || CONFIG_MACH_SCALE
+#ifdef CONFIG_MACH_HUAWEI
 	{-300,  1609},
 	{-200,  1512},
 	{-100,  1391},
@@ -1135,7 +1135,7 @@ static const struct qpnp_vadc_map_pt adcmap_smb_batt_therm[] = {
 	{770,	195},
 	{780,	190},
 	{790,	186}
-#endif /* CONFIG_MACH_HUAWEI || CONFIG_MACH_SCALE */
+#endif /* CONFIG_MACH_HUAWEI */
 };
 
 /* Voltage to temperature */
