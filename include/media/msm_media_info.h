@@ -152,7 +152,7 @@ static inline unsigned int VENUS_EXTRADATA_SIZE(int width, int height)
 #ifdef CONFIG_HUAWEI_KK_CAMERA
 	return 8 * 1024;
 #else
-	return 16 * 1024;
+	return 8 * 1024;
 #endif
 }
 
