@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,9 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#ifdef CONFIG_MACH_HY_A16C3H
-#include "msmb_isp_a16c3h.h"
-#else
 #ifndef __MSMB_ISP__
 #define __MSMB_ISP__
 
@@ -30,7 +27,6 @@
 #define ISP1_BIT              (0x10000 << 2)
 #define ISP_META_CHANNEL_BIT  (0x10000 << 3)
 #define ISP_SCRATCH_BUF_BIT   (0x10000 << 4)
-#define ISP_PDAF_CHANNEL_BIT   (0x10000 << 5)
 #define ISP_STATS_STREAM_BIT  0x80000000
 
 struct msm_vfe_cfg_cmd_list;
@@ -85,13 +81,6 @@ enum msm_vfe_frame_skip_pattern {
 	EVERY_6FRAME,
 	EVERY_7FRAME,
 	EVERY_8FRAME,
-	EVERY_9FRAME,
-	EVERY_10FRAME,
-	EVERY_11FRAME,
-	EVERY_12FRAME,
-	EVERY_13FRAME,
-	EVERY_14FRAME,
-	EVERY_15FRAME,
 	EVERY_16FRAME,
 	EVERY_32FRAME,
 	SKIP_ALL,
@@ -116,13 +105,6 @@ struct msm_vfe_fetch_engine_cfg {
 	uint32_t buf_stride;
 };
 
-struct msm_vfe_camif_subsample_cfg {
-	uint32_t irq_subsample_period;
-	uint32_t irq_subsample_pattern;
-	uint32_t pixel_skip;
-	uint32_t line_skip;
-};
-
 struct msm_vfe_camif_cfg {
 	uint32_t lines_per_frame;
 	uint32_t pixels_per_line;
@@ -133,7 +115,6 @@ struct msm_vfe_camif_cfg {
 	uint32_t epoch_line0;
 	uint32_t epoch_line1;
 	enum msm_vfe_camif_input camif_input;
-	struct msm_vfe_camif_subsample_cfg subsample_cfg;
 };
 
 enum msm_vfe_inputmux {
@@ -615,4 +596,3 @@ struct msm_isp_event_data32 {
 	_IOWR('V', BASE_VIDIOC_PRIVATE+21, struct msm_isp_event_data)
 #endif
 #endif /* __MSMB_ISP__ */
-#endif /* CONFIG_MACH_HY_A16C3H */
