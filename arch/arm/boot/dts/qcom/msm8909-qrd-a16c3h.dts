@@ -1,0 +1,51 @@
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include "msm8909-qrd.dtsi"
+#include "a16c3h/msm8909-qrd-a16c3h.dtsi"
+
+/ {
+	qcom,board-id= <0x1000b 0x8>, <0x11000b 0x8>, <0x21000b 0x8>;
+};
+
+&pm8909_chg {
+	qcom,vddmax-mv = <4400>;
+	qcom,vddsafe-mv = <4430>;
+	qcom,vinmin-mv = <4520>;
+};
+
+&pm8909_bms {
+	qcom,max-voltage-uv = <4350000>;
+	qcom,resume-soc = <97>;
+};
+
+&pm8909_l6 {
+	regulator-alway-on;
+};
+
+&pm8909_l17 {
+	regulator-always-on;
+};
+
+&usb_otg {
+	qcom,hsusb-otg-phy-init-seq = <0x73 0x80 0x6b 0x81 0xffffffff>;
+};
+
+&soc {
+};
+
+&ts_int_suspend {
+	/delete-property/ bias-pull-down;
+	bias-pull-up;
+};
