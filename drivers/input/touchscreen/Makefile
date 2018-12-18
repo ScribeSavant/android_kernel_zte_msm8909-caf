@@ -107,3 +107,5 @@ obj-$(CONFIG_CYTTSP5_CS445A)		+= cyttsp5_cs445a/
 # BEGIN
 obj-$(CONFIG_TOUCHSCREEN_MSTAR_V33) += mstar_3.3/
 # END
+
+obj-$(CONFIG_TOUCHSCREEN_MSTAR_G151)       += msg22xx_g151/

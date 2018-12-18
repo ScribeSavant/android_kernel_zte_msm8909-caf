@@ -1,0 +1,113 @@
+#
+# Mstar msg2xxx touchscreen driver configuration
+#
+menuconfig TOUCHSCREEN_MSTAR_G151
+	bool "Mstar msg2xxx touchscreen"
+	default y
+	help
+	  Say Y here if you have a Mstar msg2xxx touchscreen connected
+	  to your system.
+
+	  If unsure, say N.
+if TOUCHSCREEN_MSTAR_G151
+
+config TOUCHSCREEN_MSTAR_DRV_COMMON_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_IC_FW_PORTING_LAYER_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_QCOM_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_SELF_FW_CONTROL_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_SELF_MP_TEST_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_UTILITY_ADAPTION_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_PLATFORM_INTERFACE_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_PLATFORM_PORTING_LAYER_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_MAIN_MSG2xxx
+	tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_MSTAR_DRV_JNI_INTERFACE_MSG2xxx
+    tristate "Mstar msg2xxx core driver module"
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+endif

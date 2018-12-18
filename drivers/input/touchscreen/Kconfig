@@ -1194,4 +1194,6 @@ endif
 source "drivers/input/touchscreen/mstar_3.3/Kconfig"
 # END
 
+source "drivers/input/touchscreen/msg22xx_g151/Kconfig"
+
 endif
