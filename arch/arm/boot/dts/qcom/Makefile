@@ -57,7 +57,12 @@ dtb-$(CONFIG_ARCH_MSM8909) += 	msm8909-qrd-scl-al00_vc.dtb \
 	msm8909-qrd-scc-u21_vb.dtb
 endif
 else ifeq ($(CONFIG_MACH_HAIER_MSM8909),y)
+ifeq ($(CONFIG_MACH_HY_A16C3H),y)
 dtb-$(CONFIG_ARCH_MSM8909) += msm8909-qrd-a16c3h.dtb
+else ifeq ($(CONFIG_MACH_B26D2H),y)
+dtb-$(CONFIG_ARCH_MSM8909) += msm8909-qrd-b26d2h-v1.dtb \
+	msm8909-qrd-b26d2h-v2.dtb
+endif
 else
 dtb-$(CONFIG_ARCH_MSM8909) += msm8909-sim.dtb \
 	msm8909-rumi.dtb \
