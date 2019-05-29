@@ -80,7 +80,7 @@ static int previous_bias_level = SND_SOC_BIAS_OFF;
 
 #define MAX_AUX_CODECS	2
 
-#ifdef CONFIG_MACH_HUAWEI
+#if defined CONFIG_MACH_HUAWEI && defined CONFIG_MACH_HAIER
 /*for cherry-vd SPK-PA ext buck-boost ctl*/
 #define DEFUALT_SPK_SWITCH_VALUE 0x0
 #define SPK_ON 1
@@ -1333,7 +1333,7 @@ static int msm_btsco_rate_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-#ifdef CONFIG_MACH_HUAWEI
+#if defined CONFIG_MACH_HUAWEI && defined CONFIG_MACH_HAIER
 /* Cherry_VD */
 /* The function to pull up GPIO 0 to enable SPK_EXT_Boost*/
 static void spk_gpio_on(void)
@@ -1459,7 +1459,7 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			mi2s_tx_sample_rate_get, mi2s_tx_sample_rate_put),
 	SOC_ENUM_EXT("MI2S_RX SampleRate", msm_snd_enum[3],
 			mi2s_rx_sample_rate_get, mi2s_rx_sample_rate_put),
-#ifdef CONFIG_MACH_HUAWEI
+#if defined CONFIG_MACH_HUAWEI && defined CONFIG_MACH_HAIER
 	/* to add Cherry_vd */
 	SOC_ENUM_EXT("SPK",ext_spk_switch_enum[0],
 			ext_spk_switch_get, ext_spk_switch_put),
@@ -3949,8 +3949,8 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-#ifdef CONFIG_MACH_HUAWEI
-#ifdef CONFIG_MACH_SCALE
+#if defined CONFIG_MACH_HUAWEI && defined CONFIG_MACH_HAIER
+#if defined CONFIG_MACH_SCALE && defined CONFIG_MACH_HAIER
 	/*Get GPIO num for SPK ext-boost-en ctl*/
 	spk_en_gpio = of_get_named_gpio(pdev->dev.of_node,
 					"qcom,ext_boost_en", 0);
