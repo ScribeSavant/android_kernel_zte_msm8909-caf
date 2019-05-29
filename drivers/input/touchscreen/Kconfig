@@ -1188,4 +1188,10 @@ if SYNAPTICS_DSX_S3207
 source "drivers/input/touchscreen/synaptics_dsx_s3207/Kconfig"
 endif
 
+# Add B26D2H Touchscreen driver
+# By Dody Irawan (dodyirawan85)
+# BEGIN
+source "drivers/input/touchscreen/mstar_3.3/Kconfig"
+# END
+
 endif

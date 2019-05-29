@@ -1,0 +1,10 @@
+#
+# Mstar msg2238 touchscreen driver configuration
+#
+menuconfig TOUCHSCREEN_MSTAR_V33
+	bool "Mstar msg2238 touchscreen"
+	help
+	  Say Y here if you have a Mstar msg22xx touchscreen connected
+	  to your system.
+
+	  If unsure, say N.
