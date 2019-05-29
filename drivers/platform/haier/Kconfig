@@ -32,6 +32,12 @@ config MACH_HY_A16C3H
 	bool "A16C3H board"
 	select MACH_HAIER_MSM8909
 	help
-	  Support for Haier Rendang variant
+	  Support for Haier A16C3H variant
+
+config MACH_B26D2H
+	bool "B26D2H board"
+	select MACH_HAIER_MSM8909
+	help
+	  Support for Haier B26D2H variant
 
 endmenu
