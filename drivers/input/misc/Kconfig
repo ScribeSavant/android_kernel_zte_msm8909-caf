@@ -1023,3 +1023,11 @@ config HUAWEI_ACCEL_SENSORS_KIONIX
           Say Y here if you want to support ROHM_KX023 accelerometer connected via an I2C bus.
           to compile this driver as a module, choose M here: the module will be called kionix_accel.
 
+config SENSORS_KIONIX_ACCEL
+	tristate "KIONIX_ACCEL"
+	depends on I2C=y
+	help
+	  If you say yes here you get support for the Kionix digital 3-axis
+	  accelerometer.
+	  This driver can also be built as a module. If so, the module will be
+	  called kionix_accel.
