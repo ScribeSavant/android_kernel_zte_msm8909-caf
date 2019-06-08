@@ -193,9 +193,9 @@
 
 		kionix@e {
 			compatible = "kionix,kxtj2-1009";
-			reg = <0xe>;
+			reg = <0x0e>;
 			interrupt-parent = <&msm_gpio>;
-			interrupts = <96 0x2002>;
+			interrupts = <112 0x2002>;
 			vdd-supply = <&pm8909_l17>;
 			vio-supply = <&pm8909_l6>;
 			kionix,min_interval = <5>;
@@ -204,7 +204,7 @@
 			kionix,accel_irq_use_drdy = <0>;
 			kionix,accel_res = <12>;
 			kionix,accel_g_range = <2>;
-		};
+        };
 
 		senodia@c {
 			compatible = "senodia,st480";
@@ -297,7 +297,10 @@
 };
 
 &pm8909_chg {
-	status = "ok";
+	qcom,batt-hot-percentage = < 0x19 >;
+	qcom,batt-cold-percentage = < 0x50 >;
+	qcom,tchg-mins = < 0xe8 >;
+	status = "okay";
 	qcom,use-external-charger;
 };
 
@@ -312,25 +315,6 @@
 
 &pm8909_bms {
 	status = "okay";
-	qcom,v-cutoff-uv = <3400000>;
-	qcom,max-voltage-uv = <4350000>;
-	qcom,r-conn-mohm = <15>;
-	qcom,shutdown-soc-valid-limit = <100>;
-	qcom,low-soc-calculate-soc-threshold = <15>;
-	qcom,low-voltage-calculate-soc-ms = <1000>;
-	qcom,low-soc-calculate-soc-ms = <5000>;
-	qcom,calculate-soc-ms = <20000>;
-	qcom,volatge-soc-timeout-ms = <60000>;
-	qcom,low-voltage-threshold = <3450000>;
-	qcom,s3-ocv-tolerence-uv = <1200>;
-	qcom,s2-fifo-length = <5>;
-	qcom,low-soc-fifo-length = <2>;
-	qcom,bms-vadc = <&pm8909_vadc>;
-	qcom,bms-adc_tm = <&pm8909_adc_tm>;
-	qcom,pmic-revid = <&pm8909_revid>;
-	qcom,force-s3-on-suspend;
-	qcom,force-s2-in-charging;
-	qcom,report-charger-eoc;
 	qcom,resume-soc = <97>;
 	qcom,use-reported-soc;
 	qcom,force-bms-active-on-charger;
@@ -432,7 +416,7 @@
 };
 
 &pm8909_l6 {
-	regulator-alway-on;
+	regulator-always-on;
 };
 
 &pm8909_l17 {
