@@ -1,0 +1,31 @@
+# Hisense configuration options
+
+config MACH_HISENSE
+	bool "Hisense device"
+	depends on ARCH_MSM
+	help
+	  Support for Hisense products
+
+config MACH_HISENSE_MSM8916
+	bool "Hisense MSM8916"
+	depends on ARCH_MSM8916
+	select MACH_HISENSE
+	help
+	  Support for MSM8916 Hisense variants
+	  
+config MACH_HISENSE_MSM8909
+	bool "Hisense MSM8909"
+	depends on ARCH_MSM8909
+	select MACH_HISENSE
+	help
+	  Support for MSM8909 Hisense variants
+
+menu "Hisense board selection"
+
+config MACH_B16C2G
+	bool "B16C2G board"
+	select MACH_HISENSE_MSM8909
+	help
+	  Support for Hisense B16C2G variant
+
+endmenu

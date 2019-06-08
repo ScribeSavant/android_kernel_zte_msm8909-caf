@@ -63,6 +63,8 @@ else ifeq ($(CONFIG_MACH_B26D2H),y)
 dtb-$(CONFIG_ARCH_MSM8909) += msm8909-qrd-b26d2h-v1.dtb \
 	msm8909-qrd-b26d2h-v2.dtb
 endif
+else ifeq ($(CONFIG_MACH_HISENSE_MSM8909),y)
+dtb-$(CONFIG_ARCH_MSM8909) += msm8909-b16c2g.dtb
 else
 dtb-$(CONFIG_ARCH_MSM8909) += msm8909-sim.dtb \
 	msm8909-rumi.dtb \
