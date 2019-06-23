@@ -28,54 +28,7 @@ dtb-$(CONFIG_ARCH_MSM8974) += msm8974-v1-cdp.dtb \
 	msm8974pro-ac-pm8941-liquid.dtb \
 	msm8974pro-ac-pm8941-mtp.dtb \
 	msm8974pro-ac-pma8084-pm8941-mtp.dtb
-dtb-$(CONFIG_ARCH_MSM8909) += msm8909-sim.dtb \
-	msm8909-rumi.dtb \
-	msm8909-qrd-skua.dtb \
-	msm8909-qrd-skuc.dtb \
-	msm8909-qrd-skue.dtb \
-	msm8909-cdp.dtb \
-	msm8909-mtp.dtb \
-	msm8909-mtp-smb1360.dtb \
-	msm8909-pm8916-mtp-smb1360.dtb \
-	msm8909-512mb-mtp-smb1360.dtb \
-	msm8909-1gb-qrd-skua.dtb \
-	msm8909-1gb-qrd-skuc.dtb \
-	msm8909-1gb-qrd-skue.dtb \
-	msm8909-1gb-cdp.dtb \
-	msm8909-1gb-mtp.dtb \
-	msm8909-1gb-rcm.dtb \
-	msm8909-pm8916-1gb-rcm.dtb \
-	msm8909-pm8916-mtp.dtb \
-	msm8909-pm8916-cdp.dtb \
-	msm8909-qhd-cdp.dtb \
-	msm8909-qhd-rcm.dtb \
-	msm8909-pm8916-1gb-qhd-rcm.dtb \
-	msm8909-pm8916-qhd-rcm.dtb \
-	msm8909-pm8916-qrd-skut-evt.dtb \
-	msm8909-pm8916-qrd-skut-dvt.dtb \
-	msm8909-pm8916-qrd-skuq.dtb \
-	msm8905-pm8909-512mb-mtp.dtb \
-	msm8905-pm8909-256mb-mtp.dtb \
-	msm8905-pm8909-512mb-cdp.dtb \
-	msm8905-pm8909-512mb-cdp_qseev4.dtb \
-	msm8905-pm8909-256mb-cdp.dtb \
-	msm8905-pm8909-512mb-rcm.dtb \
-	msm8905-pm8909-256mb-rcm.dtb \
-	msm8905-qrd-skub.dtb \
-	msm8905-qrd-bb.dtb \
-	msm8905-qrd-sku3.dtb \
-	msm8905-qrd-skub_qseev4.dtb \
-	msm8909w-wtp.dtb \
-	msm8909w-cdp.dtb \
-	apq8009w-wtp.dtb \
-	apq8009w-cdp.dtb \
-	apq8009-mtp-wcd9326.dtb \
-	msm8909-mtp-wcd9326.dtb \
-	msm8909-mtp-wcd9326-refboard.dtb \
-	msm8909-512mb-mtp-wcd9326-refboard.dtb \
-	apq8009-mtp-wcd9326-refboard.dtb \
-	apq8009-512mb-mtp-wcd9326-refboard.dtb
-
+dtb-$(CONFIG_ARCH_MSM8909) += msm8909-pm8916-mtp-smb1360.dtb
 dtb-$(CONFIG_ARCH_MSM8916) += msm8916-cdp.dtb \
 	msm8916-cdp-smb1360.dtb \
 	msm8916-mtp.dtb \
