@@ -31,6 +31,10 @@
 #include "wcd-mbhc-v2.h"
 #include "wcdcal-hwdep.h"
 
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 start*/
+#include <linux/proc_fs.h>
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 end*/
+
 #define WCD_MBHC_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
 			   SND_JACK_OC_HPHR | SND_JACK_LINEOUT | \
 			   SND_JACK_UNSUPPORTED | SND_JACK_MECHANICAL)
@@ -40,7 +44,7 @@
 				  SND_JACK_BTN_6 | SND_JACK_BTN_7)
 #define OCP_ATTEMPT 1
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
-#define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
+#define SPECIAL_HS_DETECT_TIME_MS 300 // (2 * 1000)zte_liyang optimize for selfie stick
 #define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
 #define GND_MIC_SWAP_THRESHOLD 4
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
@@ -56,6 +60,50 @@ static int det_extn_cable_en;
 module_param(det_extn_cable_en, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(det_extn_cable_en, "enable/disable extn cable detect");
+
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 start*/
+static int hs_type = 0;
+
+static int hs_show(struct seq_file *m, void *v)
+{	
+    seq_printf(m, "%d\n", hs_type);
+    return 0;
+}
+
+static int hs_open(struct inode *inode, struct file *file)
+{
+
+    return single_open(file, hs_show, NULL);
+}
+
+static const struct file_operations jack_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= hs_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 end*/
+
+#define WCD_MBHC_RSC_LOCK(mbhc)			\
+{							\
+	pr_debug("%s: Acquiring BCL\n", __func__);	\
+	mutex_lock(&mbhc->codec_resource_lock);		\
+	pr_debug("%s: Acquiring BCL done\n", __func__);	\
+}
+
+#define WCD_MBHC_RSC_UNLOCK(mbhc)			\
+{							\
+	pr_debug("%s: Release BCL\n", __func__);	\
+	mutex_unlock(&mbhc->codec_resource_lock);	\
+}
+
+#define WCD_MBHC_RSC_ASSERT_LOCKED(mbhc)		\
+{							\
+	WARN_ONCE(!mutex_is_locked(&mbhc->codec_resource_lock), \
+		  "%s: BCL should have acquired\n", __func__); \
+}
 
 enum wcd_mbhc_cs_mb_en_flag {
 	WCD_MBHC_EN_CS = 0,
@@ -313,17 +361,12 @@ out_micb_en:
 			  mbhc->is_hs_recording);
 		break;
 	case WCD_EVENT_POST_MICBIAS_2_OFF:
-		if (!mbhc->mbhc_cb->mbhc_micbias_control)
-			mbhc->is_hs_recording = false;
-		if (mbhc->micbias_enable) {
-			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
-			break;
-		}
-
 		if (mbhc->mbhc_cb->set_auto_zeroing)
 			mbhc->mbhc_cb->set_auto_zeroing(codec, false);
-		if (mbhc->mbhc_cb->set_micbias_value && !mbhc->micbias_enable)
+		if (mbhc->mbhc_cb->set_micbias_value)
 			mbhc->mbhc_cb->set_micbias_value(codec);
+		if (!mbhc->mbhc_cb->mbhc_micbias_control)
+			mbhc->is_hs_recording = false;
 		/* Enable PULL UP if PA's are enabled */
 		if ((test_bit(WCD_MBHC_EVENT_PA_HPHL, &mbhc->event_state)) ||
 				(test_bit(WCD_MBHC_EVENT_PA_HPHR,
@@ -524,8 +567,29 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 {
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
 
-	pr_debug("%s: enter insertion %d hph_status %x\n",
-		 __func__, insertion, mbhc->hph_status);
+	pr_err("%s: enter insertion %d hph_status %x\n",
+		 __func__, insertion, mbhc->hph_status);//zte liyang use to print the headset information
+
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 start*/
+    if(insertion)    
+    {        
+        switch(jack_type)        
+        {        
+            case SND_JACK_HEADPHONE:            
+            hs_type = 2;            
+            break;        
+            case SND_JACK_HEADSET:            
+            hs_type = 1;            
+            break;        
+            default:            
+            hs_type = 0;            
+            break;        
+        }            
+    }    
+    else        
+    hs_type  = 0;
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 end*/
+
 	if (!insertion) {
 		/* Report removal */
 		mbhc->hph_status &= ~jack_type;
@@ -553,10 +617,6 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 				mbhc->mbhc_cb->mbhc_micb_ctrl_thr_mic(
 						mbhc->codec,
 						MIC_BIAS_2, false);
-			if (mbhc->mbhc_cb->set_micbias_value) {
-				mbhc->mbhc_cb->set_micbias_value(mbhc->codec);
-				WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_MICB_CTRL, 0);
-			}
 			mbhc->micbias_enable = false;
 		}
 
@@ -590,12 +650,6 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 					mbhc->mbhc_cb->mbhc_micb_ctrl_thr_mic(
 							mbhc->codec,
 							MIC_BIAS_2, false);
-				if (mbhc->mbhc_cb->set_micbias_value) {
-					mbhc->mbhc_cb->set_micbias_value(
-							mbhc->codec);
-					WCD_MBHC_REG_UPDATE_BITS(
-							WCD_MBHC_MICB_CTRL, 0);
-				}
 				mbhc->micbias_enable = false;
 			}
 			mbhc->hph_type = WCD_MBHC_HPH_NONE;
@@ -682,7 +736,7 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 static void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 					 enum wcd_mbhc_plug_type plug_type)
 {
-	pr_debug("%s: enter current_plug(%d) new_plug(%d)\n",
+	pr_err("%s: enter current_plug(%d) new_plug(%d)\n",
 		 __func__, mbhc->current_plug, plug_type);
 
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
@@ -864,7 +918,7 @@ static bool wcd_is_special_headset(struct wcd_mbhc *mbhc)
 		mbhc->mbhc_cb->mbhc_common_micb_ctrl(codec,
 				MBHC_COMMON_MICB_PRECHARGE,
 				false);
-	if (mbhc->mbhc_cb->set_micbias_value && !mbhc->micbias_enable)
+	if (mbhc->mbhc_cb->set_micbias_value)
 		mbhc->mbhc_cb->set_micbias_value(codec);
 	if (mbhc->mbhc_cb->set_auto_zeroing)
 		mbhc->mbhc_cb->set_auto_zeroing(codec, false);
@@ -923,7 +977,7 @@ static void wcd_enable_mbhc_supply(struct wcd_mbhc *mbhc,
 			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
 	} else {
 		if (plug_type == MBHC_PLUG_TYPE_HEADSET) {
-			if (mbhc->is_hs_recording || mbhc->micbias_enable)
+			if (mbhc->is_hs_recording)
 				wcd_enable_curr_micbias(mbhc,
 							WCD_MBHC_EN_MB);
 			else if ((test_bit(WCD_MBHC_EVENT_PA_HPHL,
@@ -1025,14 +1079,6 @@ correct_plug_type:
 					mbhc->hs_detect_work_stop);
 			wcd_enable_curr_micbias(mbhc,
 						WCD_MBHC_EN_NONE);
-			if (mbhc->micbias_enable) {
-				mbhc->mbhc_cb->mbhc_micb_ctrl_thr_mic(
-					mbhc->codec, MIC_BIAS_2, false);
-				if (mbhc->mbhc_cb->set_micbias_value)
-					mbhc->mbhc_cb->set_micbias_value(
-							mbhc->codec);
-				mbhc->micbias_enable = false;
-			}
 			goto exit;
 		}
 		if (mbhc->btn_press_intr) {
@@ -1050,14 +1096,6 @@ correct_plug_type:
 					mbhc->hs_detect_work_stop);
 			wcd_enable_curr_micbias(mbhc,
 						WCD_MBHC_EN_NONE);
-			if (mbhc->micbias_enable) {
-				mbhc->mbhc_cb->mbhc_micb_ctrl_thr_mic(
-					mbhc->codec, MIC_BIAS_2, false);
-				if (mbhc->mbhc_cb->set_micbias_value)
-					mbhc->mbhc_cb->set_micbias_value(
-							mbhc->codec);
-				mbhc->micbias_enable = false;
-			}
 			goto exit;
 		}
 		WCD_MBHC_REG_READ(WCD_MBHC_HS_COMP_RESULT, hs_comp_res);
@@ -1170,6 +1208,14 @@ correct_plug_type:
 			plug_type = MBHC_PLUG_TYPE_HEADSET;
 			goto report;
 		}
+		/*ZTE_MODIFY by liyang  for selfie stick 20151023 start*/
+		else{
+			pr_err("%s: liyang for selfie stick found %d\n",__func__, plug_type);
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
+			goto report;
+		}
+        /*ZTE_MODIFY by liyang  for selfie stick 20151023 end*/                
+        
 	}
 
 report:
@@ -1411,7 +1457,7 @@ static int wcd_mbhc_get_button_mask(struct wcd_mbhc *mbhc)
 		mask = SND_JACK_BTN_0;
 		break;
 	case 1:
-		mask = SND_JACK_BTN_1;
+		mask = SND_JACK_BTN_0;//ZTE_MODIFY by liyang  for selfie stick 
 		break;
 	case 2:
 		mask = SND_JACK_BTN_2;
@@ -2063,7 +2109,7 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc,
 			schedule_delayed_work(&mbhc->mbhc_firmware_dwork,
 				      usecs_to_jiffies(FW_READ_TIMEOUT));
 		else
-			pr_err("%s: Skipping to read mbhc fw, 0x%pK %pK\n",
+			pr_err("%s: Skipping to read mbhc fw, 0x%p %p\n",
 				 __func__, mbhc->mbhc_fw, mbhc->mbhc_cal);
 	}
 	pr_debug("%s: leave %d\n", __func__, rc);
@@ -2114,8 +2160,16 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 	const char *hph_switch = "qcom,msm-mbhc-hphl-swh";
 	const char *gnd_switch = "qcom,msm-mbhc-gnd-swh";
 
+
+	struct proc_dir_entry *proc_hs_type;//liyang for fastmmi
 	pr_debug("%s: enter\n", __func__);
 
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 start*/
+	proc_hs_type = proc_create("hs", S_IRUGO, NULL, &jack_proc_fops);
+	if (!proc_hs_type) {
+		printk(KERN_ERR"hs: unable to register '/proc/hs' \n");
+	}
+/*ZTE_MODIFY by liyang for fastmmi 2014/07/07 end*/
 	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
 	if (ret) {
 		dev_err(card->dev,
@@ -2330,6 +2384,7 @@ void wcd_mbhc_deinit(struct wcd_mbhc *mbhc)
 	mbhc->mbhc_cb->free_irq(codec, mbhc->intr_ids->hph_right_ocp, mbhc);
 	if (mbhc->mbhc_cb && mbhc->mbhc_cb->register_notifier)
 		mbhc->mbhc_cb->register_notifier(codec, &mbhc->nblock, false);
+	remove_proc_entry("hs", NULL);//zte liyang for fastmmi
 	mutex_destroy(&mbhc->codec_resource_lock);
 }
 EXPORT_SYMBOL(wcd_mbhc_deinit);

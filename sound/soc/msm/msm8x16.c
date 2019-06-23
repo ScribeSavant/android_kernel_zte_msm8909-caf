@@ -400,11 +400,13 @@ static int msm_auxpcm_be_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
+/*ZTE_MODIFY by liyang for external pa  20160113 start*/
 static int enable_spk_ext_pa(struct snd_soc_codec *codec, int enable)
 {
 	struct snd_soc_card *card = codec->card;
 	struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	int ret = 0;
+	//int ret = 0;
+       int pa_mode = 5; // PA works in mode 5
 
 	if (!gpio_is_valid(pdata->spk_ext_pa_gpio)) {
 		pr_err("%s: Invalid gpio: %d\n", __func__,
@@ -414,7 +416,8 @@ static int enable_spk_ext_pa(struct snd_soc_codec *codec, int enable)
 
 	pr_debug("%s: %s external speaker PA\n", __func__,
 		enable ? "Enable" : "Disable");
-	ret = pinctrl_select_state(pinctrl_info.pinctrl,
+
+/*	ret = pinctrl_select_state(pinctrl_info.pinctrl,
 				pinctrl_info.cdc_lines_act);
 	if (ret < 0) {
 		pr_err("%s: failed to active cdc gpio's\n",
@@ -422,10 +425,85 @@ static int enable_spk_ext_pa(struct snd_soc_codec *codec, int enable)
 		return -EINVAL;
 	}
 
-	gpio_set_value_cansleep(pdata->spk_ext_pa_gpio, enable);
+	gpio_set_value_cansleep(pdata->spk_ext_pa_gpio, enable);*/
+
+
+ 	if (enable) {
+		unsigned long flags;	
+		local_irq_save(flags);			
+		if(pa_mode == 1)
+		{
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);			
+		}
+		else if(pa_mode == 2)
+		{
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+		}
+		else if(pa_mode == 3)
+		{
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+		}
+		else if(pa_mode == 4)
+		{
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+		}		
+		else if(pa_mode == 5)
+		{
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+			udelay(2);
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			udelay(2);	
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 1);		
+		}			
+		else
+		{
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+		}		
+		local_irq_restore(flags);		
+	} else {
+		gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+		/* time takes disable the external power amplifier */
+	}
 
 	return 0;
 }
+/*ZTE_MODIFY by liyang for external pa  20160113 end*/
 
 static int msm_pri_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				struct snd_pcm_hw_params *params)
@@ -436,9 +514,9 @@ static int msm_pri_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
-	pr_debug("%s: Number of channels = %d Sample rate = %d \n", __func__,
-			msm_pri_mi2s_rx_ch, pri_rx_sample_rate);
-	rate->min = rate->max =  pri_rx_sample_rate;
+	pr_debug("%s: Number of channels = %d\n", __func__,
+			msm_pri_mi2s_rx_ch);
+	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_pri_mi2s_rx_ch;
 
 	return 0;
@@ -1633,6 +1711,20 @@ static void *def_msm8x16_wcd_mbhc_cal(void)
 	btn_high[3] = 450;
 	btn_low[4] = 500;
 	btn_high[4] = 500;
+	
+//zte liyang modified for three button
+ //#ifdef CONFIG_ZTE_MULTI_BUTTON
+       btn_low[0] = 87;
+	btn_high[0] = 100;
+	btn_low[1] = 212.5;
+	btn_high[1] = 262.5;
+	btn_low[2] = 350;
+	btn_high[2] = 400;
+	btn_low[3] = 450;
+	btn_high[3] = 562.5;
+	btn_low[4] = 550;
+	btn_high[4] = 725;
+//#endif	
 
 	return msm8x16_wcd_cal;
 }
@@ -1690,9 +1782,6 @@ static int msm_audrx_init_wcd(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_card *card;
-	struct snd_info_entry *entry;
-	struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(rtd->card);
 	int ret = 0;
 
 	pr_debug("%s: dev_name%s\n", __func__, dev_name(cpu_dai->dev));
@@ -1724,20 +1813,6 @@ static int msm_audrx_init_wcd(struct snd_soc_pcm_runtime *rtd)
 		ret = tasha_mbhc_hs_detect(codec, &wcd_mbhc_cfg);
 	else
 		ret = -ENOMEM;
-
-	card = rtd->card->snd_card;
-	entry = snd_register_module_info(card->module,
-						"codecs",
-						card->proc_root);
-	if (!entry) {
-		pr_debug("%s: Cannot create codecs module entry\n",
-			__func__);
-		return 0;
-	}
-	pdata->codec_root = entry;
-	tasha_codec_info_create_codec_entry(pdata->codec_root,
-							codec);
-
 	return ret;
 }
 
@@ -1810,7 +1885,7 @@ static struct snd_soc_dai_link msm8x16_9326_dai[] = {
 	{ /* FrontEnd DAI Link, CPE Service */
 		.name = "CPE Listen service",
 		.stream_name = "CPE Listen Audio Service",
-		.cpu_dai_name = "CPE_LSM_NOHOST",
+		.cpu_dai_name = "msm-dai-q6-mi2s.3",
 		.platform_name = "msm-cpe-lsm",
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			SND_SOC_DPCM_TRIGGER_POST},
@@ -1819,6 +1894,7 @@ static struct snd_soc_dai_link msm8x16_9326_dai[] = {
 		.ignore_pmdown_time = 1,
 		.codec_dai_name = "tasha_mad1",
 		.codec_name = "tasha_codec",
+		.ops = &msm8x16_quat_mi2s_be_ops,
 	},
 };
 
@@ -3018,19 +3094,6 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 	}
 	pdata->mclk_freq = id;
 
-	pdata->spk_ext_pa_gpio = of_get_named_gpio(pdev->dev.of_node,
-				spk_ext_pa, 0);
-	if (pdata->spk_ext_pa_gpio < 0) {
-		dev_dbg(&pdev->dev,
-			"%s: missing %s in dt node\n", __func__, spk_ext_pa);
-	} else {
-		if (!gpio_is_valid(pdata->spk_ext_pa_gpio)) {
-			pr_err("%s: Invalid external speaker gpio: %d",
-				__func__, pdata->spk_ext_pa_gpio);
-			return -EINVAL;
-		}
-	}
-
 	ret = of_property_read_string(pdev->dev.of_node, codec_type, &ptr);
 	if (ret) {
 		dev_err(&pdev->dev,
@@ -3170,7 +3233,28 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 			ret);
 		goto err;
 	}
+
+
+
+/*ZTE_MODIFY by liyang for external pa 20160113 start*/
+	pdata->spk_ext_pa_gpio = of_get_named_gpio(pdev->dev.of_node,
+				spk_ext_pa, 0);
+	if (pdata->spk_ext_pa_gpio < 0) {
+		dev_dbg(&pdev->dev,
+			"%s: missing %s in dt node\n", __func__, spk_ext_pa);
+	} else {
+            ret = gpio_request(pdata->spk_ext_pa_gpio, "liyang_PA");		
+            if (ret) {			
+             pr_err("%s: liyang failed to request: %d\n", __func__,
+    			pdata->spk_ext_pa_gpio);
+    		return -EINVAL;
+           }
+	}
+/*ZTE_MODIFY by liyang for external pa 20160113 end*/    
+
 	return 0;
+
+    
 err:
 	if (pdata->vaddr_gpio_mux_spkr_ctl)
 		iounmap(pdata->vaddr_gpio_mux_spkr_ctl);
