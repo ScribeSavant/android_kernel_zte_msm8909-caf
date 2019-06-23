@@ -802,6 +802,7 @@ static struct rcg_clk blsp1_uart2_apps_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_gcc_camss_gp0_1_clk[] = {
+	F( 24000,	xo,	16,	1,	50), //yangchaofeng add for P809A50 lcd backlight gpio output pwm
 	F( 100000000,	gpll0,	8,	0,	0),
 	F( 200000000,	gpll0,	4,	0,	0),
 	F_END
@@ -2622,6 +2623,8 @@ static void gcc_gfx3d_fmax(struct platform_device *pdev)
 	mclk1_clk_src.c.fmax = mclk0_1_fmax;
 }
 
+
+
 static int msm_gcc_probe(struct platform_device *pdev)
 {
 	struct resource *res;
@@ -2745,6 +2748,98 @@ static struct platform_driver msm_clock_gcc_driver = {
 		.owner = THIS_MODULE,
 	},
 };
+
+/*ZSW_MODIFY begin,add for P809A50 lcd backlight gpio output pwm,yangchaofeng,20151218*/
+#ifdef CONFIG_LCDBL_GPIO_PWM
+unsigned int * gcc_mm_gp0_d_address = NULL;
+unsigned int * gcc_mm_gp0_cmd_rcgr  = NULL;
+//unsigned int * gcc_mm_gp0_cbcr = NULL;
+struct clk *gpio31_clk_struct=NULL;
+static int pwm_gp1_clk_enabled = 0;
+struct device	*gp31_dev=NULL;
+void zte_set_gpio31_pwm_duty(int level)
+{
+
+	if (NULL == gpio31_clk_struct)
+	{
+		gpio31_clk_struct=devm_clk_get(gp31_dev,"client_clk");
+		if (IS_ERR(gpio31_clk_struct))
+		{
+			printk("%s: Get cam_gp0_clk error!!!\n", __func__);
+			gpio31_clk_struct = NULL;
+			return;
+	    }
+		clk_set_rate(gpio31_clk_struct, 24000);
+	}	
+	if (0 == level)
+	{
+		if (pwm_gp1_clk_enabled)
+		{
+			clk_disable_unprepare(gpio31_clk_struct);
+			pwm_gp1_clk_enabled = 0;
+		}
+	}
+	else
+	{
+	        if(level>98)
+		{
+			level=98;
+		}
+		else if(level<2)
+		{
+			level=2;
+		}
+		if (!pwm_gp1_clk_enabled)
+	{
+		clk_prepare_enable(gpio31_clk_struct);
+			pwm_gp1_clk_enabled = 1;
+	}
+	gcc_mm_gp0_d_address[0] =(~( 50 * level / 50)) & 0xff;//gcc_mm_gp1_d_address[0] = (~( N * level / 50)) & 0x0ff;
+	mb();
+	gcc_mm_gp0_cmd_rcgr[0] = 0x3;
+	mb();
+	}
+	//pr_err("[MSM_LCD]%s:d_address=0x%x\n",__FUNCTION__, gcc_mm_gp0_d_address[0]);
+        return;
+
+}
+/*ZSW_MODIFY end,add for P809A50 lcd backlight gpio output pwm,yangchaofeng,20151218*/
+static int client_clk_probe(struct platform_device *pdev)
+{
+	//int ret;
+
+	        gcc_mm_gp0_d_address = (unsigned int *)(((unsigned char *)virt_bases[GCC_BASE]) + 0x54010);
+	        gcc_mm_gp0_cmd_rcgr   = (unsigned int *)(((unsigned char *)virt_bases[GCC_BASE]) + 0x54000);
+	//gcc_mm_gp0_cbcr           = (unsigned int *)(((unsigned char *)virt_bases[GCC_BASE])  + 0x54018);
+	gp31_dev=&pdev->dev;
+	//gpio31_clk_struct=devm_clk_get(&pdev->dev,"client_clk");
+	//ret=clk_set_rate(gpio31_clk_struct, 24000);
+	//printk("added by 10175298 :%s:%i ret=%d\n",__FUNCTION__,__LINE__,ret);
+	zte_set_gpio31_pwm_duty(39);
+
+               return 0;
+}
+static const struct of_device_id client_clk_dt_match[] = {
+       { .compatible = "qcom,client_clk",},
+       {}
+};
+static struct platform_driver client_clk_driver = {
+       .probe    = client_clk_probe,
+       .shutdown = NULL,
+       .driver = {
+               .name           = "client_clk",
+               .owner = THIS_MODULE,
+               .of_match_table = client_clk_dt_match,
+       },
+};
+#else
+void zte_set_gpio31_pwm_duty(int level)
+{
+pr_err("zte_set_gpio31_pwm_duty test\n");
+	return;
+}
+#endif
+/*ZSW_MODIFY end,add for P809A50 lcd backlight gpio output pwm,yangchaofeng,20151218*/
 
 static int __init msm_gcc_init(void)
 {
@@ -2883,6 +2978,9 @@ static struct platform_driver msm_clock_gcc_mdss_driver = {
 
 static int __init msm_gcc_mdss_init(void)
 {
+#ifdef CONFIG_LCDBL_GPIO_PWM
+	platform_driver_register(&client_clk_driver);//add for P809A50 lcd backlight gpio output pwm yangchaofeng
+#endif
 	return platform_driver_register(&msm_clock_gcc_mdss_driver);
 }
 fs_initcall_sync(msm_gcc_mdss_init);

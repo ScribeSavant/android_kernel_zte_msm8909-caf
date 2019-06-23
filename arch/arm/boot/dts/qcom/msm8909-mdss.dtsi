@@ -31,13 +31,22 @@
                 mdss_fb0: qcom,mdss_fb_primary {
 			cell-index = <0>;
 			compatible = "qcom,mdss-fb";
-			qcom,mdss-fb-format = "rgba8888";
+			/*qcom,mdss-fb-format = "rgb888";*/
 			qcom,cont-splash-memory {
 				linux,contiguous-region = <&cont_splash_mem>;
 			};
 		};
 	};
-
+	/*ZSW_MODIFY begin,add for P809A50 lcd backlight gpio output pwm,yangchaofeng,20151218*/
+	client@3{
+		compatible = "qcom,client_clk";
+		clocks = <&clock_gcc clk_gcc_camss_gp0_clk>;
+		clock-names = "client_clk";
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&client_clk_default>;
+		pinctrl-1 = <&client_clk_sleep>;
+	};
+	/*ZSW_MODIFY end,add for P809A50 lcd backlight gpio output pwm,yangchaofeng,20151218*/
 	mdss_dsi0: qcom,mdss_dsi@1ac8000 {
 		compatible = "qcom,mdss-dsi-ctrl";
 		label = "MDSS DSI CTRL->0";

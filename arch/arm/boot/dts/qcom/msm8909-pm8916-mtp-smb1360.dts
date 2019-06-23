@@ -31,14 +31,53 @@
 		interrupts = <58 8>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&smb_int_default>;
-		qcom,charging-disabled;
-		qcom,empty-soc-disabled;
-		qcom,chg-inhibit-disabled;
-		qcom,float-voltage-mv = <4200>;
-		qcom,iterm-ma = <200>;
-		qcom,recharge-thresh-mv = <100>;
-		qcom,thermal-mitigation = <1500 700 600 0>;
 		regulator-name = "smb1360_otg_vreg";
+
+		qcom,pre-charge-led-gpio = <&msm_gpio 3 0x00>;   /*TODO: check PCB design */
+
+		/* battery capacity */
+		qcom,fg-batt-capacity-mah = <2540>;   /*TODO: check battery capacity */
+		qcom,fg-cc-soc-coeff = <0x8273>;   /*need TODO: open a case and ask qcom */
+
+		qcom,fg-cutoff-voltage-mv = <3400>;
+		qcom,empty-soc-disabled;
+		qcom,rsense-10mhom;
+		qcom,fg-iterm-ma = <150>;
+		qcom,fg-ibatt-standby-ma = <200>;
+		qcom,fg-cc-to-cv-mv = <4380>;   /*need TODO: check whether it is OK. */
+		qcom,thermistor-c1-coeff = <0x85EC>;   /*need TODO: check NTC beta from HW engineer and search the value from Table 5-4 in SMB1360 datasheet */
+
+		qcom,charging-timeout = <0>;    /*TODO: "0" means safety timer disabled */
+		qcom,float-voltage-mv = <4400>;
+		qcom,iterm-ma = <150>;
+		qcom,recharge-thresh-mv = <200>;   /*TODO: check whether it works when "qcom,fg-auto-recharge-soc" is specified */
+		qcom,fg-soc-max = <85>;   /*it not work in driver, we can del this line */
+		qcom,fg-soc-min = <5>;
+		qcom,fg-auto-recharge-soc = <95>;  /*TODO: check which value is suitable */
+		qcom,chg-inhibit-disabled;
+		qcom,thermal-mitigation = <1500 700 600 0>;
+		/*
+		qcom,config-hard-thresholds;
+		qcom,hot-bat-decidegc = <590>;
+		qcom,cold-bat-decidegc = <10>;
+		*/
+		qcom,soft-jeita-supported;
+		qcom,warm-bat-decidegc = <450>;
+		qcom,cool-bat-decidegc = <150>;
+		qcom,warm-bat-mv = <4200>;/*TODO*/
+		qcom,cool-bat-mv = <4400>;/*TODO*/
+		qcom,warm-bat-ma = <600>;/*TODO*/
+		qcom,cool-bat-ma = <600>;/*TODO*/
+		qcom,adapter-current-limit = <1000>;  /*TODO: check output of adapter */
+
+		qcom,otg-batt-curr-limit = <1500>;
+		qcom,fg-reset-at-pon;
+		qcom,fg-reset-thresold-mv = <50>;
+		qcom,shdn-after-pwroff;
+
+		qcom,fg-delta-soc = <1>;
+
+		qcom,profile_to_load = <0>;  /*TODO: <0> = profile A, <1> = profile B */
 	};
 };
 

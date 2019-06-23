@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -125,6 +125,15 @@
 			reg = <0x0 0x83000000 0x0 0xc00000>;
 			label = "cont_splash_mem";
 		};
+		
+		/* ZSW Added: define RAM Console Heap */
+		pstore_reserve_mem: pstore_reserve_mem_region@0 {
+            linux,reserve-contiguous-region;
+            linux,reserve-region;
+            linux,remove-completely;
+            reg = <0x0 0x85000000 0x0 0x00100000>;
+            label = "pstore_reserve_mem";
+        };
 	};
 
 	soc: soc { };
@@ -510,7 +519,6 @@
 			<144000 266670000 0x55555555>, /* VGA@60 X 2 */
 			<108000 133330000 0xffffffff>, /* 720p@30 Decode */
 			<54000 133330000 0x55555555>; /* HVGA@90 Encode */
-		qcom,pm-qos-latency-us = <501>;
 		qcom,hfi = "venus";
 		qcom,reg-presets = <0xE0020 0x05555556>,
 			<0xE0024 0x05555556>,
@@ -784,7 +792,7 @@
 		qcom,pronto-vddcx-supply = <&pm8909_s1_corner>;
 		qcom,pronto-vddpx-supply = <&pm8909_l7>;
 		qcom,iris-vddxo-supply   = <&pm8909_l7>;
-		qcom,iris-vddrfa-supply  = <&pm8909_l10>;
+		/*qcom,iris-vddrfa-supply  = <&pm8909_l10>;//removed by ZTE_FKEYING_20160225 */
 		qcom,iris-vddpa-supply   = <&pm8909_l9>;
 		qcom,iris-vdddig-supply  = <&pm8909_l5>;
 
@@ -1592,9 +1600,6 @@
 		qcom,use-sw-aes-cbc-ecb-ctr-algo;
 		qcom,use-sw-aes-xts-algo;
 		qcom,use-sw-ahash-algo;
-		qcom,use-sw-aes-ccm-algo;
-		qcom,use-sw-hmac-algo;
-		qcom,use-sw-aead-algo;
 		status = "disabled";
 		qcom,ce-opp-freq = <100000000>;
 	};
@@ -1726,7 +1731,6 @@
 		qcom,gpio-err-ready = <&smp2pgpio_ssr_smp2p_1_in 1 0>;
 		qcom,gpio-proxy-unvote = <&smp2pgpio_ssr_smp2p_1_in 2 0>;
 		qcom,gpio-stop-ack = <&smp2pgpio_ssr_smp2p_1_in 3 0>;
-		qcom,gpio-shutdown-ack = <&smp2pgpio_ssr_smp2p_1_in 7 0>;
 
 		/* GPIO output to mss */
 		qcom,gpio-force-stop = <&smp2pgpio_ssr_smp2p_1_out 0 0>;

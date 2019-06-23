@@ -1,0 +1,68 @@
+#
+# Focaltech FT6x36 touchscreen driver configuration
+#
+menuconfig TOUCHSCREEN_FOCALTECH
+	bool "Focaltech ft6x06 touchscreen"
+	default y
+	help
+	  Say Y here if you have a focaltech ft6x06 touchscreen connected
+	  to your system.
+
+	  If unsure, say N.
+if TOUCHSCREEN_FOCALTECH
+
+config TOUCHSCREEN_FTS
+	tristate "Focaltech ft6x36 core driver module"
+	default y
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_FTS_EX_FUN
+	tristate "Focaltech ft6x36 core driver module"
+	default y
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_FTS_CTL
+	tristate "Focaltech ft6x36 core driver module"
+	default y
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_FTS_FLASH
+        tristate "Focaltech ft6x36 core driver module"
+	default y
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+
+config TOUCHSCREEN_FTS_GESTURE
+    tristate "Focaltech ft6x36 core driver module"
+	default y
+	help
+	  Say Y here to enable basic touch reporting functionalities.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called synaptics_dsx_core.
+endif
