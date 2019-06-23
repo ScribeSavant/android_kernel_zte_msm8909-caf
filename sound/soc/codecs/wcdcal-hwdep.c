@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,8 +11,6 @@
  * GNU General Public License for more details.
  *
  */
-#include <linux/kernel.h>
-#include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/ioctl.h>
 #include <linux/bitops.h>
@@ -22,17 +20,15 @@
 #include "wcdcal-hwdep.h"
 
 const int cal_size_info[WCD9XXX_MAX_CAL] = {
-	[WCD9XXX_ANC_CAL] = 16384,
+	[WCD9XXX_ANC_CAL] = 8192,
 	[WCD9XXX_MBHC_CAL] = 4096,
 	[WCD9XXX_MAD_CAL] = 4096,
-	[WCD9XXX_VBAT_CAL] = 72,
 };
 
 const char *cal_name_info[WCD9XXX_MAX_CAL] = {
 	[WCD9XXX_ANC_CAL] = "anc",
 	[WCD9XXX_MBHC_CAL] = "mbhc",
 	[WCD9XXX_MAD_CAL] = "mad",
-	[WCD9XXX_VBAT_CAL] = "vbat",
 };
 
 struct firmware_cal *wcdcal_get_fw_cal(struct fw_info *fw_data,
@@ -86,8 +82,7 @@ static int wcdcal_hwdep_ioctl_shared(struct snd_hwdep *hw,
 		return -EFAULT;
 	}
 	data = fw[fw_user.cal_type]->data;
-	if (copy_from_user(data, fw_user.buffer, fw_user.size))
-		return -EFAULT;
+	memcpy(data, fw_user.buffer, fw_user.size);
 	fw[fw_user.cal_type]->size = fw_user.size;
 	mutex_lock(&fw_data->lock);
 	set_bit(WCDCAL_RECIEVED, &fw_data->wcdcal_state[fw_user.cal_type]);
@@ -173,17 +168,14 @@ int wcd_cal_create_hwdep(void *data, int node, struct snd_soc_codec *codec)
 	}
 
 	fw = fw_data->fw;
-	snprintf(hwname, strlen("Codec %s"), "Codec %s",
-		 codec->name);
-	err = snd_hwdep_new(codec->card->snd_card,
-				hwname, node, &hwdep);
+	snprintf(hwname, strlen("Codec %s"), "Codec %s", codec->name);
+	err = snd_hwdep_new(codec->card->snd_card, hwname, node, &hwdep);
 	if (err < 0) {
 		dev_err(codec->dev, "%s: new hwdep failed %d\n",
 				__func__, err);
 		return err;
 	}
-	snprintf(hwdep->name, strlen("Codec %s"), "Codec %s",
-		 codec->name);
+	snprintf(hwdep->name, strlen("Codec %s"), "Codec %s", codec->name);
 	hwdep->iface = SNDRV_HWDEP_IFACE_AUDIO_CODEC;
 	hwdep->private_data = fw_data;
 	hwdep->ops.ioctl_compat = wcdcal_hwdep_ioctl_compat;
