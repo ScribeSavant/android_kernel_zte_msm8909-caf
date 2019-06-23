@@ -134,7 +134,7 @@
 
 		cam_sensor_flash {
 			/* FLASH_RESET,FLASH_EN,FLASH_NOW */
-			qcom,pins = <&gp 36>, <&gp 31>,<&gp 32> ;
+			qcom,pins = <&gp 82>, <&gp 31>,<&gp 32> ;
 			qcom,num-grp-pins = <3>;
 			qcom,pin-func = <0>;
 			label = "cam_sensor_flash";
@@ -1012,11 +1012,16 @@
 				bias-disable = <0>; /* no pull */
 				output-high;
 			};
+			//modify by yujianhua for suspend state lcd reset set high start
 			mdss_dsi_suspend: suspend {
-				drive-strength = <2>; /* 2 mA */
-				bias-pull-down; /* pull down */
-				output-low;
+				drive-strength = <8>; /* 8 mA */
+				bias-disable = <0>; /* no pull */
+				output-high;
+				//drive-strength = <2>; /* 2 mA */
+				//bias-pull-down; /* pull down */
+				//output-low;
 			};
+			//modify by yujianhua for suspend state lcd reset set high end
 		};
 
 		pmx_mdss_te: pmx_mdss_te {
@@ -1156,6 +1161,22 @@
 				bias-disable;
 			};
 		};
+		
+		//add by baojian 
+		pmx_nfc_download{
+		    qcom,pins = <&gp 110>;
+		    qcom,pin-func = <0>;
+			qcom,num-grp-pins = <1>;
+			label = "pmx_nfc_download";
+			nfc_download_active: active {
+					drive-strength = <6>;
+					bias-pull-down;
+			};
+			nfc_download_suspend: suspend {
+					drive-strength = <6>;
+					bias-disable;
+			};
+		};
 
 		wcnss_pmux_5wire: wcnss_pmux_5wire {
 			/* Uses general purpose pins */
@@ -1203,17 +1224,6 @@
 			gpio_key_suspend: gpio_key_suspend {
 				drive-strength = <2>;
 				bias-pull-up;
-			};
-		};
-
-		gpio_led_pins {
-			qcom,pins = <&gp 91>, <&gp 92>;
-			qcom,num-grp-pins = <2>;
-			label = "gpio-led-pins";
-			gpio_led_off: led_off {
-				drive-strength = <2>;
-				bias-disable; /* no pullup */
-				output-low;
 			};
 		};
 
@@ -1392,5 +1402,22 @@
 					 bias-disable;
 			};
 		};
+		client_clk { 
+			/* CLK */
+			qcom,pins = <&gp 31>; 
+			qcom,num-grp-pins = <1>;
+			qcom,pin-func = <2>; 
+			label = "client_clk";
+			/* active state */ 
+			client_clk_default: default { 
+				drive-strength = <2>; /* 2 MA */ 
+				bias-disable = <0>; /* No PULL */ 
+			}; 
+			/*suspended state */ 
+			client_clk_sleep: sleep { 
+				drive-strength = <2>; /* 2 MA */ 
+				bias-pull-down; /* PULL DOWN */ 
+			};
+		}; 
 	};
 };

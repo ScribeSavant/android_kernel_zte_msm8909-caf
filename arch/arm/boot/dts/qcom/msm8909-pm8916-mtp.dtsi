@@ -10,6 +10,17 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/ {
+	aliases {
+		serial0 = &blsp1_uart1;
+	};
+};
+
+&blsp1_uart1 {
+	status = "ok";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart_console_sleep>;
+};
 
 &soc {
 	i2c@78b9000 {
@@ -71,26 +82,26 @@
 
 &i2c_3 {
 	qcom,actuator@0 {
-		cam_vaf-supply = <&pm8916_l8>;
+		cam_vaf-supply = <&pm8916_l10>;
 	};
 
 
 	qcom,eeprom@6c{
-		cam_vdig-supply = <&pm8916_l2>;
-		cam_vana-supply = <&pm8916_l10>;
+		cam_vdig-supply = <&pm8916_mpps 16 0>;
+		cam_vana-supply = <&pm8916_mpps 17 0>;
 		cam_vio-supply = <&pm8916_l6>;
-		cam_vaf-supply = <&pm8916_l8>;
+		cam_vaf-supply = <&pm8916_l10>;
 	};
 
 	qcom,camera@0 {
-		cam_vdig-supply = <&pm8916_l2>;
-		cam_vana-supply = <&pm8916_l10>;
+		cam_vdig-supply = <&pm8916_mpps 16 0>;
+		cam_vana-supply = <&pm8916_mpps 17 0>;
 		cam_vio-supply = <&pm8916_l6>;
-		cam_vaf-supply = <&pm8916_l8>;
+		cam_vaf-supply = <&pm8916_l10>;
 	};
 
 	qcom,camera@1 {
-		cam_vana-supply = <&pm8916_l10>;
+		cam_vana-supply = <&pm8916_mpps 17 0>;
 		cam_vio-supply = <&pm8916_l6>;
 	};
 };
@@ -139,7 +150,7 @@
 				qcom,id = <6>;
 				qcom,mode = "manual";
 				qcom,source-sel = <1>;
-				qcom,mode-ctrl = <0x60>;
+				qcom,mode-ctrl = <0x10>;
 			};
 		};
 	};

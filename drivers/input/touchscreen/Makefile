@@ -18,7 +18,6 @@ obj-$(CONFIG_TOUCHSCREEN_ATMEL_TSADCC)	+= atmel_tsadcc.o
 obj-$(CONFIG_TOUCHSCREEN_AUO_PIXCIR)	+= auo-pixcir-ts.o
 obj-$(CONFIG_TOUCHSCREEN_BU21013)	+= bu21013_ts.o
 obj-$(CONFIG_TOUCHSCREEN_CY8CTMG110)	+= cy8ctmg110_ts.o
-obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4)	+= cypress/
 obj-$(CONFIG_TOUCHSCREEN_CYTTSP_CORE)	+= cyttsp_core.o
 obj-$(CONFIG_TOUCHSCREEN_CYTTSP_I2C)	+= cyttsp_i2c.o
 obj-$(CONFIG_TOUCHSCREEN_CYTTSP_SPI)	+= cyttsp_spi.o
@@ -32,8 +31,6 @@ obj-$(CONFIG_TOUCHSCREEN_EETI)		+= eeti_ts.o
 obj-$(CONFIG_TOUCHSCREEN_ELO)		+= elo.o
 obj-$(CONFIG_TOUCHSCREEN_EGALAX)	+= egalax_ts.o
 obj-$(CONFIG_TOUCHSCREEN_FUJITSU)	+= fujitsu_ts.o
-obj-$(CONFIG_TOUCHSCREEN_GSL1688E)	+= gsl_ts_driver.o gsl_ReadArrayData.o gsl_point_id.o
-obj-$(CONFIG_TOUCHSCREEN_GSL1688E_ARM64)	+= gsl_ts_driver.o gsl_ReadArrayData.o gsl_point_id_arm64.o
 obj-$(CONFIG_TOUCHSCREEN_GEN_VKEYS)	+= gen_vkeys.o
 obj-$(CONFIG_TOUCHSCREEN_ILI210X)	+= ili210x.o
 obj-$(CONFIG_TOUCHSCREEN_INEXIO)	+= inexio.o
@@ -79,33 +76,13 @@ obj-$(CONFIG_TOUCHSCREEN_WM97XX_ZYLONITE)	+= zylonite-wm97xx.o
 obj-$(CONFIG_TOUCHSCREEN_W90X900)	+= w90p910_ts.o
 obj-$(CONFIG_TOUCHSCREEN_TPS6507X)	+= tps6507x-ts.o
 obj-$(CONFIG_TOUCHSCREEN_FT5X06)	+= ft5x06_ts.o
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_RMI4_DEV)	+= synaptics_rmi_dev.o
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE) 	+= synaptics_fw_update.o
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4)		+= synaptics_i2c_rmi4.o
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4)		+= lct_tp_fm_info.o
-
+obj-$(CONFIG_TOUCHSCREEN_MSTAR21XX)	+= msg21xx_ts.o
+#obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_RMI4_DEV)	+= synaptics_rmi_dev.o
+#obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE) 	+= synaptics_fw_update.o
+#obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4)		+= synaptics_i2c_rmi4.o
 obj-$(CONFIG_TOUCHSCREEN_GT9XX)		+= gt9xx/
-obj-$(CONFIG_TOUCHSCREEN_GT9XX_HQ)	+= gt9xx_hq/
-obj-$(CONFIG_TOUCHSCREEN_GT9XX_YL)	+= gt9xx_yl/
+obj-$(CONFIG_TOUCHSCREEN_MSG2xxx)		+= MSG22xx/
 obj-$(CONFIG_TOUCHSCREEN_BU21150)	+= bu21150.o
 obj-$(CONFIG_INPUT_MT_WRAPPER)		+= input_mt_wrapper.o
 obj-$(CONFIG_TOUCHSCREEN_IT7260_I2C)    += it7258_ts_i2c.o
-obj-$(CONFIG_TOUCHSCREEN_HIMAX852XES)	+= himax_852xES/
-
-obj-$(CONFIG_MACH_LONGCHEER)	+= lct_tp_fm_info.o
-obj-$(CONFIG_MACH_LONGCHEER)	+= lct_ctp_selftest.o
-obj-$(CONFIG_MACH_LONGCHEER)	+= lct_ctp_upgrade.o
-obj-$(CONFIG_MACH_LONGCHEER)	+= lct_if_ctp_upgrade.o
-
-obj-$(CONFIG_TOUCHSCREEN_MSG2XXX)	+= msg2xxx.o
-obj-$(CONFIG_MACH_YULONG)		+= touchscreen_yl.o
-obj-$(CONFIG_SYNAPTICS_DSX_S3207)	+= synaptics_dsx_s3207/
-obj-$(CONFIG_CYTTSP5_CS445A)		+= cyttsp5_cs445a/
-
-# Add B26D2H Touchscreen driver
-# By Dody Irawan (dodyirawan85)
-# BEGIN
-obj-$(CONFIG_TOUCHSCREEN_MSTAR_V33) += mstar_3.3/
-# END
-
-obj-$(CONFIG_TOUCHSCREEN_MSTAR_G151)       += msg22xx_g151/
+obj-$(CONFIG_TOUCHSCREEN_FTS)		+= focaltech/
