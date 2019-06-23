@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -206,6 +206,8 @@ struct mdss_mdp_ctl {
 
 	u16 width;
 	u16 height;
+	u16 border_x_off;
+	u16 border_y_off;
 	u32 dst_format;
 	bool is_secure;
 
@@ -469,6 +471,8 @@ struct mdss_mdp_pipe {
 	u8 chroma_sample_h;
 	u8 chroma_sample_v;
 	u8 csc_coeff_set;
+
+	wait_queue_head_t free_waitq;
 };
 
 struct mdss_mdp_writeback_arg {
@@ -494,6 +498,7 @@ struct mdss_overlay_private {
 	struct list_head overlay_list;
 	struct list_head pipes_used;
 	struct list_head pipes_cleanup;
+	struct list_head pipes_destroy;
 	struct list_head rot_proc_list;
 	bool mixer_swap;
 
@@ -732,7 +737,18 @@ static inline bool mdss_mdp_ctl_is_power_on_lp(struct mdss_mdp_ctl *ctl)
 static inline u32 left_lm_w_from_mfd(struct msm_fb_data_type *mfd)
 {
 	struct mdss_mdp_ctl *ctl = mfd_to_ctl(mfd);
-	return (ctl && ctl->mixer_left) ? ctl->mixer_left->width : 0;
+	struct mdss_panel_info *pinfo = mfd->panel_info;
+	int width = 0;
+
+	if (ctl && ctl->mixer_left) {
+		width =  ctl->mixer_left->width;
+		width -= (pinfo->lcdc.border_left + pinfo->lcdc.border_right);
+		pr_debug("ctl=%d mw=%d l=%d r=%d w=%d\n",
+			ctl->num, ctl->mixer_left->width,
+			pinfo->lcdc.border_left, pinfo->lcdc.border_right,
+			width);
+	}
+	return width;
 }
 
 static inline uint8_t pp_vig_csc_pipe_val(struct mdss_mdp_pipe *pipe)
@@ -904,6 +920,8 @@ struct mdss_mdp_pipe *mdss_mdp_pipe_search(struct mdss_data_type *mdata,
 int mdss_mdp_pipe_map(struct mdss_mdp_pipe *pipe);
 void mdss_mdp_pipe_unmap(struct mdss_mdp_pipe *pipe);
 struct mdss_mdp_pipe *mdss_mdp_pipe_alloc_dma(struct mdss_mdp_mixer *mixer);
+int mdss_mdp_get_pipe_info(struct mdss_data_type *mdata, u32 type,
+	struct mdss_mdp_pipe **pipe_pool);
 
 u32 mdss_mdp_smp_calc_num_blocks(struct mdss_mdp_pipe *pipe);
 u32 mdss_mdp_smp_get_size(struct mdss_mdp_pipe *pipe, u32 num_planes);

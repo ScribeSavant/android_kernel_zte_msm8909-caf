@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -306,7 +306,7 @@ static uint32_t msm_cpp_read(void __iomem *cpp_base)
 	uint32_t tmp, retry = 0;
 	do {
 		tmp = msm_camera_io_r(cpp_base + MSM_CPP_MICRO_FIFO_TX_STAT);
-	} while (((tmp & 0x2) == 0x0) && (retry++ < 10)) ;
+	} while (((tmp & 0x2) == 0x0) && (retry++ < 10));
 	if (retry < 10) {
 		tmp = msm_camera_io_r(cpp_base + MSM_CPP_MICRO_FIFO_TX_DATA);
 		CPP_DBG("Read data: 0%x\n", tmp);
@@ -676,9 +676,14 @@ static irqreturn_t msm_cpp_irq(int irq_num, void *data)
 	if (irq_status & 0x8) {
 		tx_level = msm_camera_io_r(cpp_dev->base +
 			MSM_CPP_MICRO_FIFO_TX_STAT) >> 2;
-		for (i = 0; i < tx_level; i++) {
-			tx_fifo[i] = msm_camera_io_r(cpp_dev->base +
-				MSM_CPP_MICRO_FIFO_TX_DATA);
+		if (tx_level < MSM_CPP_TX_FIFO_LEVEL) {
+			for (i = 0; i < tx_level; i++) {
+				tx_fifo[i] = msm_camera_io_r(cpp_dev->base +
+					MSM_CPP_MICRO_FIFO_TX_DATA);
+			}
+		} else {
+			pr_err("Fatal invalid tx level %d", tx_level);
+			goto err;
 		}
 		spin_lock_irqsave(&cpp_dev->tasklet_lock, flags);
 		queue_cmd = &cpp_dev->tasklet_queue_cmd[cpp_dev->taskletq_idx];
@@ -732,6 +737,7 @@ static irqreturn_t msm_cpp_irq(int irq_num, void *data)
 		pr_err("%s: DEBUG_R1: 0x%x\n", __func__,
 			msm_camera_io_r(cpp_dev->cpp_hw_base + 0x8C));
 	}
+err:
 	msm_camera_io_w(irq_status, cpp_dev->base + MSM_CPP_MICRO_IRQGEN_CLR);
 	return IRQ_HANDLED;
 }
@@ -1805,10 +1811,11 @@ static int msm_cpp_cfg(struct cpp_device *cpp_dev,
 	struct msm_cpp_frame_info_t *frame = NULL;
 	struct msm_cpp_frame_info_t k_frame_info;
 	int32_t rc = 0;
+
 	if (copy_from_user(&k_frame_info,
-			(void __user *)ioctl_ptr->ioctl_ptr,
-			sizeof(k_frame_info)))
-			return -EFAULT;
+		(void __user *)ioctl_ptr->ioctl_ptr,
+		sizeof(k_frame_info)))
+		return -EFAULT;
 
 	frame = msm_cpp_get_frame(ioctl_ptr);
 	if (!frame) {
@@ -1890,7 +1897,6 @@ static int msm_cpp_copy_from_ioctl_ptr(void *dst_ptr,
 }
 #endif
 
-
 static int msm_cpp_validate_ioctl_input(unsigned int cmd, void *arg,
 	struct msm_camera_v4l2_ioctl_t **ioctl_ptr)
 {
@@ -1900,7 +1906,7 @@ static int msm_cpp_validate_ioctl_input(unsigned int cmd, void *arg,
 	case VIDIOC_MSM_CPP_IOMMU_ATTACH:
 	case VIDIOC_MSM_CPP_IOMMU_DETACH:
 		break;
-	default: {
+	default:
 		if (ioctl_ptr == NULL) {
 			pr_err("Wrong ioctl_ptr for cmd %u\n", cmd);
 			return -EINVAL;
@@ -1914,7 +1920,6 @@ static int msm_cpp_validate_ioctl_input(unsigned int cmd, void *arg,
 			return -EINVAL;
 		}
 		break;
-	}
 	}
 	return 0;
 }
@@ -1930,16 +1935,15 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 		pr_err("sd %pK\n", sd);
 		return -EINVAL;
 	}
-
-	if (_IOC_DIR(cmd) == _IOC_NONE) {
-		pr_err("Invalid ioctl/subdev cmd %u", cmd);
-		return -EINVAL;
-	}
-
 	rc = msm_cpp_validate_ioctl_input(cmd, arg, &ioctl_ptr);
 	if (rc != 0) {
 		pr_err("input validation failed\n");
 		return rc;
+	}
+
+	if (_IOC_DIR(cmd) == _IOC_NONE) {
+		pr_err("Invalid ioctl/subdev cmd %u", cmd);
+		return -EINVAL;
 	}
 
 	cpp_dev = v4l2_get_subdevdata(sd);
@@ -2366,7 +2370,7 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 				cpp_dev->iommu_ctx);
 			cpp_dev->iommu_state = CPP_IOMMU_STATE_DETACHED;
 		} else {
-			pr_err("%s:%d IOMMMU attach triggered in invalid state\n",
+			pr_err("%s:%d IOMMMU detach triggered in invalid state\n",
 				__func__, __LINE__);
 			rc = -EINVAL;
 		}

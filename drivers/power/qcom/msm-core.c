@@ -96,6 +96,7 @@ struct cpu_static_info {
 
 static DEFINE_MUTEX(policy_update_mutex);
 static DEFINE_MUTEX(kthread_update_mutex);
+static DEFINE_SPINLOCK(update_lock);
 static struct delayed_work sampling_work;
 static struct completion sampling_completion;
 static struct task_struct *sampling_task;
@@ -194,7 +195,6 @@ void trigger_cpu_pwr_stats_calc(void)
 {
 	int cpu;
 	static long prev_temp[NR_CPUS];
-	static DEFINE_SPINLOCK(update_lock);
 	struct cpu_activity_info *cpu_node;
 
 	if (disabled)
@@ -341,9 +341,10 @@ static int update_userspace_power(struct sched_params __user *argp)
 	if (!sp)
 		return -ENOMEM;
 
-
+	mutex_lock(&policy_update_mutex);
 	sp->power = allocate_2d_array_uint32_t(node->sp->num_of_freqs);
 	if (IS_ERR_OR_NULL(sp->power)) {
+		mutex_unlock(&policy_update_mutex);
 		ret = PTR_ERR(sp->power);
 		kfree(sp);
 		return ret;
@@ -362,8 +363,8 @@ static int update_userspace_power(struct sched_params __user *argp)
 	/* Copy the same power values for all the cpus in the cpumask
 	 * argp->cpumask within the cluster (argp->cluster)
 	 */
-	spin_lock(&update_lock);
 	get_user(cpumask, &argp->cpumask);
+	spin_lock(&update_lock);
 	for (i = 0; i < MAX_CORES_PER_CLUSTER; i++, cpumask >>= 1) {
 		if (!(cpumask & 0x01))
 			continue;
@@ -385,11 +386,13 @@ static int update_userspace_power(struct sched_params __user *argp)
 			repopulate_stats(cpu);
 		}
 	}
-
+	spin_unlock(&update_lock);
+	mutex_unlock(&policy_update_mutex);
 	activate_power_table = true;
 	return 0;
 
 failed:
+	mutex_unlock(&policy_update_mutex);
 	for (i = 0; i < TEMP_DATA_POINTS; i++)
 		kfree(sp->power[i]);
 	kfree(sp->power);

@@ -1,7 +1,7 @@
 /*
  * MDSS MDP Interface (used by framebuffer core)
  *
- * Copyright (c) 2007-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2007-2014, 2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2007 Google Incorporated
  *
  * This software is licensed under the terms of the GNU General Public
@@ -53,6 +53,10 @@
 #include "mdss_panel.h"
 #include "mdss_debug.h"
 #include "mdss_mdp_debug.h"
+
+// irq_mask set by DRM driver
+u32 mdp_drm_intr_mask;
+EXPORT_SYMBOL(mdp_drm_intr_mask);
 
 #define CREATE_TRACE_POINTS
 #include "mdss_mdp_trace.h"
@@ -520,9 +524,10 @@ void mdss_mdp_irq_disable(u32 intr_type, u32 intf_num)
 	} else {
 		mdata->mdp_irq_mask &= ~irq;
 
-		writel_relaxed(mdata->mdp_irq_mask, mdata->mdp_base +
-			MDSS_MDP_REG_INTR_EN);
+		writel_relaxed(mdata->mdp_irq_mask | mdp_drm_intr_mask,
+				mdata->mdp_base + MDSS_MDP_REG_INTR_EN);
 		if ((mdata->mdp_irq_mask == 0) &&
+			(mdp_drm_intr_mask == 0) &&
 			(mdata->mdp_hist_irq_mask == 0))
 			mdata->mdss_util->disable_irq(&mdss_mdp_hw);
 	}
@@ -826,6 +831,7 @@ void mdss_mdp_clk_ctrl(int enable)
 	if (enable && changed)
 		mdss_mdp_idle_pc_restore();
 }
+EXPORT_SYMBOL(mdss_mdp_clk_ctrl);
 
 static inline int mdss_mdp_irq_clk_register(struct mdss_data_type *mdata,
 					    char *clk_name, int clk_idx)
@@ -895,7 +901,8 @@ static int mdss_mdp_irq_clk_setup(struct mdss_data_type *mdata)
 	pr_debug("max mdp clk rate=%d\n", mdata->max_mdp_clk_rate);
 
 	ret = devm_request_irq(&mdata->pdev->dev, mdss_mdp_hw.irq_info->irq,
-				mdss_irq_handler, IRQF_DISABLED, "MDSS", mdata);
+				mdss_irq_handler,
+				IRQF_DISABLED | IRQF_SHARED, "MDSS", mdata);
 	if (ret) {
 		pr_err("mdp request_irq() failed!\n");
 		return ret;
@@ -1044,6 +1051,9 @@ static int mdss_iommu_init(struct mdss_data_type *mdata)
 			return -EINVAL;
 		}
 
+		iommu_set_fault_handler(domain, mdss_xlog_tout_handler_iommu,
+			NULL);
+
 		iomap->ctx = msm_iommu_get_ctx(iomap->ctx_name);
 		if (!iomap->ctx) {
 			pr_warn("unable to get iommu ctx(%s)\n",
@@ -1065,9 +1075,11 @@ static void mdss_debug_enable_clock(int on)
 		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 }
 
-static int mdss_mdp_debug_init(struct mdss_data_type *mdata)
+static int mdss_mdp_debug_init(struct platform_device *pdev,
+	struct mdss_data_type *mdata)
 {
 	int rc;
+	struct mdss_debug_base *dbg_blk;
 
 	mdata->debug_inf.debug_enable_clock = mdss_debug_enable_clock;
 
@@ -1081,8 +1093,11 @@ static int mdss_mdp_debug_init(struct mdss_data_type *mdata)
 		return rc;
 	}
 
-	mdss_debug_register_io("mdp", &mdata->mdss_io);
-	mdss_debug_register_io("vbif", &mdata->vbif_io);
+	mdss_debug_register_io("mdp", &mdata->mdss_io, &dbg_blk);
+	mdss_debug_register_dump_range(pdev, dbg_blk, "qcom,regs-dump-mdp",
+		"qcom,regs-dump-names-mdp");
+
+	mdss_debug_register_io("vbif", &mdata->vbif_io, NULL);
 
 	return 0;
 }
@@ -1573,7 +1588,7 @@ static int mdss_mdp_probe(struct platform_device *pdev)
 		goto probe_done;
 	}
 
-	rc = mdss_mdp_debug_init(mdata);
+	rc = mdss_mdp_debug_init(pdev, mdata);
 	if (rc) {
 		pr_err("unable to initialize mdp debugging\n");
 		goto probe_done;
@@ -1940,7 +1955,7 @@ static int mdss_mdp_parse_dt_pipe(struct platform_device *pdev)
 	if (!mdata->vig_pipes) {
 		pr_err("no mem for vig_pipes: kzalloc fail\n");
 		rc = -ENOMEM;
-		goto vig_alloc_fail;
+		goto parse_fail;
 	}
 
 	mdata->rgb_pipes = devm_kzalloc(&mdata->pdev->dev,
@@ -1948,7 +1963,7 @@ static int mdss_mdp_parse_dt_pipe(struct platform_device *pdev)
 	if (!mdata->rgb_pipes) {
 		pr_err("no mem for rgb_pipes: kzalloc fail\n");
 		rc = -ENOMEM;
-		goto rgb_alloc_fail;
+		goto parse_fail;
 	}
 
 	if (mdata->ndma_pipes) {
@@ -1958,7 +1973,7 @@ static int mdss_mdp_parse_dt_pipe(struct platform_device *pdev)
 		if (!mdata->dma_pipes) {
 			pr_err("no mem for dma_pipes: kzalloc fail\n");
 			rc = -ENOMEM;
-			goto dma_alloc_fail;
+			goto parse_fail;
 		}
 	}
 
@@ -2135,7 +2150,7 @@ static int mdss_mdp_parse_dt_pipe(struct platform_device *pdev)
 		if (!mdata->cursor_pipes) {
 			pr_err("no mem for cursor_pipes: kzalloc fail\n");
 			rc = -ENOMEM;
-			goto cursor_alloc_fail;
+			goto parse_fail;
 		}
 		rc = mdss_mdp_parse_dt_handler(pdev,
 			"qcom,mdss-pipe-cursor-off", offsets,
@@ -2159,18 +2174,8 @@ static int mdss_mdp_parse_dt_pipe(struct platform_device *pdev)
 		pr_info("dedicated vp cursors detected, num=%d\n",
 			mdata->ncursor_pipes);
 	}
-	goto parse_done;
 
 parse_fail:
-	kfree(mdata->cursor_pipes);
-cursor_alloc_fail:
-	kfree(mdata->dma_pipes);
-dma_alloc_fail:
-	kfree(mdata->rgb_pipes);
-rgb_alloc_fail:
-	kfree(mdata->vig_pipes);
-parse_done:
-vig_alloc_fail:
 	kfree(xin_id);
 xin_alloc_fail:
 	kfree(ftch_id);

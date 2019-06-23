@@ -824,11 +824,6 @@ static int qcedev_sha_final(struct qcedev_async_req *qcedev_areq,
 		return -EINVAL;
 	}
 
-	if (handle->sha_ctxt.trailing_buf_len == 0) {
-		pr_err("%s Incorrect trailng buffer %d\n", __func__,
-					handle->sha_ctxt.trailing_buf_len);
-		return -EINVAL;
-	}
 	handle->sha_ctxt.last_blk = 1;
 
 	total = handle->sha_ctxt.trailing_buf_len;
@@ -1562,10 +1557,9 @@ static int qcedev_check_sha_params(struct qcedev_sha_op_req *req,
 		pr_err("%s: CMAC not supported\n", __func__);
 		goto sha_error;
 	}
-	if ((req->entries == 0) || (req->data_len == 0) ||
-			(req->entries > QCEDEV_MAX_BUFFERS)) {
-		pr_err("%s: Invalid data length (%d)/ num entries (%d)\n",
-				__func__, req->data_len, req->entries);
+	if ((!req->entries) || (req->entries > QCEDEV_MAX_BUFFERS)) {
+		pr_err("%s: Invalid num entries (%d)\n",
+						__func__, req->entries);
 		goto sha_error;
 	}
 
@@ -1829,11 +1823,7 @@ long qcedev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		if (is_fips_qcedev_integritytest_done)
 			return -EPERM;
 
-		if (!access_ok(VERIFY_WRITE, (void __user *)arg,
-			sizeof(enum fips_status)))
-			return -EFAULT;
-
-		if (__copy_from_user(&status, (void __user *)arg,
+		if (copy_from_user(&status, (void __user *)arg,
 			sizeof(enum fips_status)))
 			return -EFAULT;
 
@@ -1862,12 +1852,9 @@ long qcedev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case QCEDEV_IOCTL_QUERY_FIPS_STATUS:
 		{
 		enum fips_status status;
-		if (!access_ok(VERIFY_WRITE, (void __user *)arg,
-			sizeof(enum fips_status)))
-			return -EFAULT;
 
 		status = g_fips140_status;
-		if (__copy_to_user((void __user *)arg, &status,
+		if (copy_to_user((void __user *)arg, &status,
 			sizeof(enum fips_status)))
 			return -EFAULT;
 

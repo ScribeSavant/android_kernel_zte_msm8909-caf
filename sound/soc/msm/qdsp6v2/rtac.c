@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -54,6 +54,7 @@ struct rtac_cal_block_data	rtac_cal[MAX_RTAC_BLOCKS] = {
 struct rtac_common_data {
 	atomic_t			usage_count;
 	atomic_t			apr_err_code;
+	struct mutex			rtac_fops_mutex;
 };
 
 static struct rtac_common_data		rtac_common;
@@ -75,6 +76,7 @@ static struct rtac_apr_data	rtac_voice_apr_data[RTAC_VOICE_MODES];
 struct rtac_popp_data {
 	uint32_t	popp;
 	uint32_t	popp_topology;
+	uint32_t	app_type;
 };
 
 struct rtac_adm_data {
@@ -337,7 +339,9 @@ static int rtac_open(struct inode *inode, struct file *f)
 	int	result = 0;
 	pr_debug("%s\n", __func__);
 
+	mutex_lock(&rtac_common.rtac_fops_mutex);
 	atomic_inc(&rtac_common.usage_count);
+	mutex_unlock(&rtac_common.rtac_fops_mutex);
 	return result;
 }
 
@@ -348,12 +352,15 @@ static int rtac_release(struct inode *inode, struct file *f)
 	int	i;
 	pr_debug("%s\n", __func__);
 
+	mutex_lock(&rtac_common.rtac_fops_mutex);
 	atomic_dec(&rtac_common.usage_count);
 	pr_debug("%s: ref count %d!\n", __func__,
 		atomic_read(&rtac_common.usage_count));
 
-	if (atomic_read(&rtac_common.usage_count) > 0)
+	if (atomic_read(&rtac_common.usage_count) > 0) {
+		mutex_unlock(&rtac_common.rtac_fops_mutex);
 		goto done;
+	}
 
 	for (i = 0; i < MAX_RTAC_BLOCKS; i++) {
 		result2 = rtac_unmap_cal_buffer(i);
@@ -370,13 +377,14 @@ static int rtac_release(struct inode *inode, struct file *f)
 			result = result2;
 		}
 	}
+	mutex_unlock(&rtac_common.rtac_fops_mutex);
 done:
 	return result;
 }
 
 
 /* ADM Info */
-void add_popp(u32 dev_idx, u32 port_id, u32 popp_id)
+void add_popp(u32 dev_idx, u32 port_id, u32 popp_id, u32 app_type)
 {
 	u32 i = 0;
 
@@ -392,8 +400,11 @@ void add_popp(u32 dev_idx, u32 port_id, u32 popp_id)
 	rtac_adm_data.device[dev_idx].popp[
 		rtac_adm_data.device[dev_idx].num_of_popp].popp = popp_id;
 	rtac_adm_data.device[dev_idx].popp[
-		rtac_adm_data.device[dev_idx].num_of_popp++].popp_topology =
+		rtac_adm_data.device[dev_idx].num_of_popp].popp_topology =
 		q6asm_get_asm_topology();
+	rtac_adm_data.device[dev_idx].popp[
+		rtac_adm_data.device[dev_idx].num_of_popp++].app_type =
+		app_type;
 done:
 	return;
 }
@@ -416,7 +427,7 @@ void rtac_add_adm_device(u32 port_id, u32 copp_id, u32 path_id, u32 popp_id,
 		for (; i < rtac_adm_data.num_of_dev; i++) {
 			if (rtac_adm_data.device[i].afe_port == port_id &&
 			    rtac_adm_data.device[i].copp == copp_id) {
-				add_popp(i, port_id, popp_id);
+				add_popp(i, port_id, popp_id, app_type);
 				goto done;
 			}
 			if (rtac_adm_data.device[i].num_of_popp ==
@@ -439,8 +450,10 @@ void rtac_add_adm_device(u32 port_id, u32 copp_id, u32 path_id, u32 popp_id,
 	rtac_adm_data.device[i].popp[
 		rtac_adm_data.device[i].num_of_popp].popp = popp_id;
 	rtac_adm_data.device[i].popp[
-		rtac_adm_data.device[i].num_of_popp++].popp_topology =
+		rtac_adm_data.device[i].num_of_popp].popp_topology =
 		q6asm_get_asm_topology();
+	rtac_adm_data.device[i].popp[
+		rtac_adm_data.device[i].num_of_popp++].app_type = app_type;
 done:
 	mutex_unlock(&rtac_adm_mutex);
 	return;
@@ -469,10 +482,15 @@ static void shift_popp(u32 copp_idx, u32 popp_idx)
 			&rtac_adm_data.device[copp_idx].popp[popp_idx + 1].
 			popp_topology,
 			sizeof(uint32_t));
+		memcpy(&rtac_adm_data.device[copp_idx].popp[popp_idx].app_type,
+			&rtac_adm_data.device[copp_idx].popp[popp_idx + 1].
+			app_type, sizeof(uint32_t));
 		memset(&rtac_adm_data.device[copp_idx].popp[popp_idx + 1].
 			popp, 0, sizeof(uint32_t));
 		memset(&rtac_adm_data.device[copp_idx].popp[popp_idx + 1].
 			popp_topology, 0, sizeof(uint32_t));
+		memset(&rtac_adm_data.device[copp_idx].popp[popp_idx + 1].
+			app_type, 0, sizeof(uint32_t));
 	}
 }
 
@@ -514,6 +532,9 @@ void rtac_remove_popp_from_adm_devices(u32 popp_id)
 				rtac_adm_data.device[i].popp[j].popp = 0;
 				rtac_adm_data.device[i].popp[j].
 					popp_topology = 0;
+				rtac_adm_data.device[i].popp[j].
+					app_type = 0;
+
 				rtac_adm_data.device[i].num_of_popp--;
 				shift_popp(i, j);
 			}
@@ -1641,6 +1662,7 @@ static long rtac_ioctl(struct file *f,
 {
 	int result = 0;
 
+	mutex_lock(&rtac_common.rtac_fops_mutex);
 	if (!arg) {
 		pr_err("%s: No data sent to driver!\n", __func__);
 		result = -EFAULT;
@@ -1648,6 +1670,7 @@ static long rtac_ioctl(struct file *f,
 		result = rtac_ioctl_shared(f, cmd, (void __user *)arg);
 	}
 
+	mutex_unlock(&rtac_common.rtac_fops_mutex);
 	return result;
 }
 
@@ -1670,6 +1693,7 @@ static long rtac_compat_ioctl(struct file *f,
 {
 	int result = 0;
 
+	mutex_lock(&rtac_common.rtac_fops_mutex);
 	if (!arg) {
 		pr_err("%s: No data sent to driver!\n", __func__);
 		result = -EINVAL;
@@ -1722,6 +1746,7 @@ process:
 		break;
 	}
 done:
+	mutex_unlock(&rtac_common.rtac_fops_mutex);
 	return result;
 }
 #else
@@ -1749,6 +1774,7 @@ static int __init rtac_init(void)
 	/* Driver */
 	atomic_set(&rtac_common.usage_count, 0);
 	atomic_set(&rtac_common.apr_err_code, 0);
+	mutex_init(&rtac_common.rtac_fops_mutex);
 
 	/* ADM */
 	memset(&rtac_adm_data, 0, sizeof(rtac_adm_data));
