@@ -967,7 +967,7 @@ config TOUCHSCREEN_MSTAR21XX
          module will be called msg21xx_ts.
 
 config TOUCHSCREEN_FOCALTECH
-       tristate "focaltech touchscreens"
+       bool "focaltech touchscreens"
        depends on I2C
        help
          Say Y here if you have a fts touchscreen.
