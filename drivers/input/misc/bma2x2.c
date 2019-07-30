@@ -50,6 +50,11 @@
 #include <string.h>
 #endif
 
+//added by chenhui for proc info node begin
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+//added by chenhui for proc info node
+
 #include "bstclass.h"
 
 #define ACC_NAME  "ACC"
@@ -61,7 +66,7 @@
 #define ISR_INFO(dev, fmt, arg...)
 #endif
 
-#define BMA2X2_SENSOR_IDENTIFICATION_ENABLE
+//#define BMA2X2_SENSOR_IDENTIFICATION_ENABLE
 
 #define SENSOR_NAME                 "bma2x2-accel"
 #define ABSMIN                      -512
@@ -89,7 +94,6 @@
 /* wait 10ms for self test  done */
 #define SELF_TEST_DELAY()           usleep_range(10000, 15000)
 
-#ifdef USE_BMA_INTERRUPT
 #define LOW_G_INTERRUPT             REL_Z
 #define HIGH_G_INTERRUPT            REL_HWHEEL
 #define SLOP_INTERRUPT              REL_DIAL
@@ -98,17 +102,6 @@
 #define ORIENT_INTERRUPT            ABS_PRESSURE
 #define FLAT_INTERRUPT              ABS_DISTANCE
 #define SLOW_NO_MOTION_INTERRUPT    REL_Y
-#else
-/* AndroidM didn't use the dev-interrupt,bypass above defines */
-#define LOW_G_INTERRUPT             REL_Z
-#define HIGH_G_INTERRUPT            REL_Z
-#define SLOP_INTERRUPT              REL_Z
-#define DOUBLE_TAP_INTERRUPT        REL_Z
-#define SINGLE_TAP_INTERRUPT        REL_Z
-#define ORIENT_INTERRUPT            REL_Z
-#define FLAT_INTERRUPT              REL_Z
-#define SLOW_NO_MOTION_INTERRUPT    REL_Z
-#endif
 
 #define HIGH_G_INTERRUPT_X_HAPPENED                 1
 #define HIGH_G_INTERRUPT_Y_HAPPENED                 2
@@ -1401,6 +1394,27 @@ static const struct interrupt_map_t int_map[] = {
 #define BMA2x2_VIO_MIN_UV       1500000
 #define BMA2x2_VIO_MAX_UV       3400000
 
+/*added by chenhui for proc info node begin*/
+#define PROC_GSENSOR_DIR  "gsensor"
+#define PROC_GSENSOR_NAME  "gsensor/chip_info"
+
+static struct proc_dir_entry *gsensor_proc_dir_entry;
+static struct i2c_client *proc_client;
+//static ssize_t gsensor_config_proc_write(struct file *file, const char __user *buffer, size_t count, loff_t *pos);
+static int gsensor_config_proc_open(struct inode *inode, struct file *file);
+struct list_head nd_struct_glist_b;
+
+
+static const struct file_operations info_proc_file_ops = {	
+	.owner	 = THIS_MODULE,    
+	.open    = gsensor_config_proc_open,    
+	.read	 = seq_read,	
+	.llseek	 = seq_lseek,	
+	.release = seq_release,	
+	//.write   = gsensor_config_proc_write,
+};
+/*proc info node end*/
+
 /* Polling delay in msecs */
 #define POLL_INTERVAL_MIN_MS	10
 #define POLL_INTERVAL_MAX_MS	4000
@@ -1538,6 +1552,9 @@ struct bma2x2_data {
 	unsigned char range;
 	unsigned int int_flag;
 	int sensitivity;
+	s16 cal_x;
+	s16 cal_y;
+	s16 cal_z;
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend early_suspend;
 #endif
@@ -5734,8 +5751,14 @@ static int bma2x2_self_calibration_xyz(struct sensors_classdev *sensors_cdev,
 		dev_err(&client->dev, "wirte calibration to eeprom failed\n");
 		goto exit;
 	}
+
+    data->cal_x = i2c_smbus_read_byte_data(client, BMA2X2_OFFSET_X_AXIS_REG);
+    data->cal_y = i2c_smbus_read_byte_data(client, BMA2X2_OFFSET_Y_AXIS_REG);
+    data->cal_z = i2c_smbus_read_byte_data(client, BMA2X2_OFFSET_Z_AXIS_REG);
+    printk("bma acc cal x y z is %d,%d,%d\n",
+           data->cal_x,data->cal_y,data->cal_z);
 	snprintf(data->calibrate_buf, sizeof(data->calibrate_buf),
-			"%d,%d,%d", 0, 0, 0);
+			"%d,%d,%d", data->cal_x, data->cal_y, data->cal_z);
 	sensors_cdev->params = data->calibrate_buf;
 
 	error = bma2x2_power_ctl(data, false);
@@ -5823,6 +5846,9 @@ static int bma2x2_write_cal_params(struct sensors_classdev *sensors_cdev,
 	snprintf(data->calibrate_buf, sizeof(data->calibrate_buf),
 			"%d,%d,%d", 0, 0, 0);
 	sensors_cdev->params = data->calibrate_buf;
+	cal_result->offset_x = data->cal_x;
+	cal_result->offset_y = data->cal_y;
+	cal_result->offset_z = data->cal_z;
 	return 0;
 }
 
@@ -7641,6 +7667,68 @@ static void bma2x2_pinctrl_state(struct bma2x2_data *data,
 	dev_dbg(&dev, "Select pinctrl state=%d\n", active);
 }
 
+/*added by chenhui for chip info proc node begin*/
+
+static void *gsensor_config_proc_start(struct seq_file *m, loff_t *pos)
+{	
+	return seq_list_start_head(&nd_struct_glist_b, *pos);
+}
+
+static void *gsensor_config_proc_next(struct seq_file *p, void *v, loff_t *pos)
+{	
+	return seq_list_next(v, &nd_struct_glist_b, pos);
+}
+
+static void gsensor_config_proc_stop(struct seq_file *m, void *v)
+{
+}
+
+static int gsensor_config_proc_show(struct seq_file *m, void *v)
+{
+	int retval;
+	
+	seq_puts(m, "gsensor module\n");
+	
+	seq_printf(m, "chip name : %s\n", SENSOR_NAME);	
+	
+	seq_printf(m, "i2c address  : %d-00%x\n",proc_client->adapter->nr, proc_client->addr);
+	
+	retval = i2c_smbus_read_byte_data(proc_client, BMA2X2_CHIP_ID_REG);
+
+	if (retval < 0) {
+		dev_err(&proc_client->dev, "verify  err!\n");
+		return 0;
+	}
+       seq_printf(m, "chip id : 0x%x\n", retval);
+	   
+	return 0;
+}
+
+
+static const struct seq_operations proc_config_ops = {	
+	.start = gsensor_config_proc_start,	
+	.next  = gsensor_config_proc_next,	
+	.stop  = gsensor_config_proc_stop,	
+	.show  = gsensor_config_proc_show,
+};
+
+static int gsensor_config_proc_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &proc_config_ops);
+}
+/*
+static ssize_t gsensor_config_proc_write(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
+{
+
+}
+*/
+static void remove_procfs_interfaces(void)
+{
+	remove_proc_entry(PROC_GSENSOR_NAME, gsensor_proc_dir_entry);
+	remove_proc_entry(PROC_GSENSOR_DIR, NULL);
+}
+/*added by chenhui for chip info proc node end*/
+
 static int bma2x2_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
@@ -8007,6 +8095,17 @@ static int bma2x2_probe(struct i2c_client *client,
 		goto remove_bst_acc_sysfs_exit;
 	}
 
+/*added by chenhui for proc info node begin*/
+	gsensor_proc_dir_entry = proc_mkdir(PROC_GSENSOR_DIR, NULL);	
+
+	if (!gsensor_proc_dir_entry) {           
+		dev_err(&client->dev, "gsensor_proc_dir_entry is null\n");
+	}
+	proc_create(PROC_GSENSOR_NAME, 0644, NULL, &info_proc_file_ops);               
+
+	proc_client = data->bma2x2_client;
+/*added by chenhui for proc info node end*/	
+	
 	dev_notice(&client->dev, "BMA2x2 driver probe successfully");
 
 	bma2x2_pinctrl_state(data, false);
@@ -8152,6 +8251,7 @@ static int bma2x2_remove(struct i2c_client *client)
 		hrtimer_cancel(&data->accel_timer);
 		kthread_stop(data->accel_task);
 	}
+	remove_procfs_interfaces();	//added by chenhui for proc node		
 	bma2x2_power_deinit(data);
 	i2c_set_clientdata(client, NULL);
 	if (data->pdata && (client->dev.of_node))

@@ -655,10 +655,36 @@ static void msm_vfe32_process_reg_update(struct vfe_device *vfe_dev,
 	return;
 }
 
+static int msm_vfe32_check_stats_cfg(struct vfe_device *vfe_dev)
+{
+	int ret = 0, rc = 0;
+	int camif_width = 0, camif_height = 0;
+	int hoffset = 0, voffset = 0, width = 0, height = 0;
+
+	rc =  msm_camera_io_r(vfe_dev->vfe_base + 0x1F0);
+	camif_width = ((rc & 0x3FFF) - (rc & 0x3FFF0000)) + 1;
+	rc =  msm_camera_io_r(vfe_dev->vfe_base + 0x1F4);
+	camif_height = ((rc & 0x3FFF) - (rc & 0x3FFF0000)) + 1;
+	hoffset = (0x1FFF & msm_camera_io_r(vfe_dev->vfe_base + 0x700));
+	voffset = (0xFFF & (msm_camera_io_r(vfe_dev->vfe_base + 0x700) >> 16));
+	width = (0x1FF & msm_camera_io_r(vfe_dev->vfe_base + 0x704));
+	height = (0xFF & (msm_camera_io_r(vfe_dev->vfe_base + 0x704) >> 10));
+	if (((hoffset * 2) + (64 * (width + 1))) == camif_width) {
+		if (((voffset * 2) + (48 * (height + 1))) == camif_height)
+			ret = 1;
+	}
+	vfe_dev->stats_vnum =
+		(0x3F & (msm_camera_io_r(vfe_dev->vfe_base + 0x704) >> 26));
+	vfe_dev->stats_hnum =
+		(0x7F & (msm_camera_io_r(vfe_dev->vfe_base + 0x704) >> 19));
+	return ret;
+}
+
 static void msm_vfe32_reg_update(
 	struct vfe_device *vfe_dev, uint32_t input_src)
 {
-	msm_camera_io_w_mb(input_src, vfe_dev->vfe_base + 0x260);
+	msm_camera_io_w_mb(0xF, vfe_dev->vfe_base + 0x260);
+	vfe_dev->fullsize_stats = msm_vfe32_check_stats_cfg(vfe_dev);
 }
 
 static long msm_vfe32_reset_hardware(struct vfe_device *vfe_dev,
@@ -761,7 +787,8 @@ static void msm_vfe32_cfg_framedrop(struct vfe_device *vfe_dev,
 	struct msm_vfe_axi_stream *stream_info)
 {
 	uint32_t framedrop_pattern = 0, framedrop_period = 0;
-
+	int i;
+	uint32_t val;
 	if (stream_info->runtime_init_frame_drop == 0) {
 		framedrop_pattern = stream_info->framedrop_pattern;
 		framedrop_period = stream_info->framedrop_period;
@@ -783,6 +810,19 @@ static void msm_vfe32_cfg_framedrop(struct vfe_device *vfe_dev,
 		msm_camera_io_w(framedrop_period, vfe_dev->vfe_base + 0x518);
 		msm_camera_io_w(framedrop_pattern, vfe_dev->vfe_base + 0x51C);
 		msm_camera_io_w(framedrop_pattern, vfe_dev->vfe_base + 0x520);
+	}else if (stream_info->stream_src == IDEAL_RAW &&
+			stream_info->runtime_burst_frame_count &&
+			!stream_info->runtime_init_frame_drop) {
+		for (i = 0; i < stream_info->num_planes; i++) {
+			vfe_dev->hw_info->vfe_ops.axi_ops.enable_wm(vfe_dev, stream_info->wm[i], 1);
+		}
+		vfe_dev->hw_info->vfe_ops.core_ops.reg_update(vfe_dev, (1 << VFE_PIX_0));
+	}else if (stream_info->stream_src == CAMIF_RAW &&
+			stream_info->runtime_burst_frame_count &&
+			!stream_info->runtime_init_frame_drop) {
+		val = msm_camera_io_r(vfe_dev->vfe_base + 0x1E4);
+		val = val | 1 << 7;
+		msm_camera_io_w(val, vfe_dev->vfe_base + 0x1E4);
 	}
 	msm_camera_io_w_mb(0x1, vfe_dev->vfe_base + 0x260);
 }
@@ -959,7 +999,7 @@ static void msm_vfe32_update_camif_state(
 		((vfe_dev->axi_data.src_info[
 			VFE_PIX_0].pix_stream_count > 0) ? 1 : 0);
 		val &= 0xFFFFFF3F;
-		val = val | bus_en << 7 | vfe_en << 6;
+		val = val | vfe_en << 6;
 		msm_camera_io_w(val, vfe_dev->vfe_base + 0x1E4);
 		msm_camera_io_w_mb(0x4, vfe_dev->vfe_base + 0x1E0);
 		msm_camera_io_w_mb(0x1, vfe_dev->vfe_base + 0x1E0);

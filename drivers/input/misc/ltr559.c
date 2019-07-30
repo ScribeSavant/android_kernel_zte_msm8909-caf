@@ -1,6 +1,6 @@
 /* Lite-On LTR-559ALS Android / Linux Driver
  *
- * Copyright (C) 2013-2015 Lite-On Technology Corp (Singapore)
+ * Copyright (C) 2013-2014 Lite-On Technology Corp (Singapore)
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -35,7 +35,7 @@
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
 #include <linux/uaccess.h>
-#include <asm/mach-types.h>
+//#include <asm/mach-types.h>
 #include <asm/setup.h>
 #include <linux/version.h>
 #include <linux/sensors.h>
@@ -194,7 +194,7 @@
 #define PS_PRST_RDBCK		1
 #define ALSPS_PRST_RDBCK	2
 
-#define PON_DELAY		100
+#define PON_DELAY		50//100
 
 #define ALS_MIN_MEASURE_VAL	0
 #define ALS_MAX_MEASURE_VAL	65535
@@ -222,6 +222,23 @@
 
 #define ACT_INTERRUPT 1
 
+#define LTR_CAL_SKIP_COUNT     5
+#define LTR_MAX_CAL	(10 + LTR_CAL_SKIP_COUNT)
+#define CAL_NUM		99
+/*PS tuning value*/
+//static int ltr559_ps_detection_threshold = 0;
+//static int ltr559_ps_hsyteresis_threshold = 0;
+
+//#define APS_TAG                  "[ALS/PS] "
+//#define APS_DBG(fmt, args...)    printk(APS_TAG fmt, ##args) 
+
+//static int ltr559_calibrate_dial(void);
+
+
+/*calibration*/
+#define DEFAULT_CROSS_TALK	100
+#define ADD_TO_CROSS_TALK	300
+#define SUB_FROM_PS_THRESHOLD	100
 /*
  * Magic Number
  * ============
@@ -235,7 +252,7 @@
 #define ltr559_IOCTL_ALS_ENABLE		_IOR(ltr559_IOCTL_MAGIC, 3, int *)
 #define ltr559_IOCTL_ALS_GET_ENABLED	_IOW(ltr559_IOCTL_MAGIC, 4, int *)
 
-/* whether disable light or not at phone
+/* w	hether disable light or not at phone
   * calling while the automatic backlight is on.
   * the default value is 1.
   */
@@ -260,6 +277,8 @@ struct ltr559_platform_data {
 	uint16_t pfd_ps_lowthresh;
 	uint16_t pfd_ps_highthresh;
 	int pfd_disable_ps_on_suspend;
+	unsigned int cross_talk;
+    bool default_cal;
 
 	/* Interrupt */
 	int pfd_gpio_int_no;
@@ -276,8 +295,9 @@ struct ltr559_data {
 	struct input_dev *als_input_dev;
 	struct input_dev *ps_input_dev;
 	struct workqueue_struct *workqueue;
+	struct delayed_work    als_dwork; /* @added by zte.for ALS polling mode*/
 	struct wake_lock ps_wake_lock;
-	struct mutex bus_lock;
+	//struct mutex bus_lock;
 	struct sensors_classdev als_cdev;
 	struct sensors_classdev ps_cdev;
 
@@ -300,6 +320,9 @@ struct ltr559_data {
 	 */
 	uint8_t mode;
 
+	/* register configuration*/
+	unsigned int enable;
+
 	/* ALS */
 	uint8_t als_enable_flag;
 	uint8_t als_suspend_enable_flag;
@@ -312,6 +335,7 @@ struct ltr559_data {
 	uint16_t *adc_levels;
 	/* Flag to suspend ALS on suspend or not */
 	uint8_t disable_als_on_suspend;
+	unsigned int als_poll_delay; /* @added by zte.for ALS polling mode*/
 
 	/* PS */
 	uint8_t ps_enable_flag;
@@ -324,6 +348,25 @@ struct ltr559_data {
 	uint16_t default_ps_highthresh;
 	/* Flag to suspend PS on suspend or not */
 	uint8_t disable_ps_on_suspend;
+
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+	/* PS parameters */
+	unsigned int ps_threshold;
+	unsigned int ps_hysteresis_threshold; 	/* always lower than ps_threshold */
+	unsigned int ps_detection;		/* 5 = near-to-far; 0 = far-to-near */
+	unsigned int ps_data;			/* to store PS data */
+
+	/*calibration*/
+	unsigned int cross_talk;		/* cross_talk value */
+	unsigned int avg_cross_talk;		/* average cross_talk  */
+	unsigned int ps_cal_result;		/* result of calibration*/
+
+	int ps_cal_data;
+	char calibrate_buf[CAL_NUM];
+	int ps_cal_params[3];
+	int pre_enable_ps;
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
+
 
 	/* LED */
 	int led_pulse_freq;
@@ -368,7 +411,7 @@ static struct sensors_classdev sensors_proximity_cdev = {
 	.version = 1,
 	.handle = SENSORS_PROXIMITY_HANDLE,
 	.type = SENSOR_TYPE_PROXIMITY,
-	.max_range = "5",
+	.max_range = "10.0",
 	.resolution = "5.0",
 	.sensor_power = "3",
 	.min_delay = 1000, /* in microseconds */
@@ -382,24 +425,36 @@ static struct sensors_classdev sensors_proximity_cdev = {
 
 #define	PS_MAX_INIT_KEPT_DATA_COUNTER		8
 #define	PS_MAX_MOV_AVG_KEPT_DATA_CTR		7
-
-uint16_t winfac1 = 10;/*100;*/
-uint16_t winfac2 = 10;/*80;*/
-uint16_t winfac3 = 10;/*44;*/
+#ifdef CONFIG_LTR559_A50
+uint16_t winfac1 = 44;//70;//50;//10;/*100;*/
+uint16_t winfac2 = 40;//70;//50;//10;/*80;*/
+uint16_t winfac3 = 130;//60;//30;//25;//10;/*44;*/
+#else
+uint16_t winfac1 = 70;//70;//50;//10;/*100;*/
+uint16_t winfac2 = 70;//70;//50;//10;/*80;*/
+uint16_t winfac3 = 130;//60;//30;//25;//10;/*44;*/
+#endif
 uint8_t eqn_prev;
 uint8_t ratio_old;
 uint16_t ps_init_kept_data[PS_MAX_INIT_KEPT_DATA_COUNTER];
 uint16_t ps_ct_avg;
 uint8_t ps_grabData_stage;
-uint32_t ftn_init;
+//uint32_t ftn_init;
 uint32_t ftn_final;
 uint32_t ntf_final;
-uint16_t lux_val_prev;
+uint16_t lux_val_prev = 100;
 uint8_t ps_kept_data_counter;
 uint16_t ps_movavg_data[PS_MAX_MOV_AVG_KEPT_DATA_CTR];
 uint8_t ps_movavg_data_counter;
 uint16_t ps_movct_avg;
 /*uint16_t ps_thresh_hi, ps_thresh_lo;*/
+
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+/*calibration*/
+//static int ltr559_cross_talk_val = 0;
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
+
+//static int ltr559_ps_get_calibrate_data(struct ltr559_data *ltr559);
 
 static int ltr559_regulator_configure(struct ltr559_data *data, bool on)
 {
@@ -520,6 +575,26 @@ enable_delay:
 		"Sensor regulator power on =%d\n", on);
 	return rc;
 }
+
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+#if 0
+static int ltr559_set_enable(struct i2c_client *client, int enable)
+{
+	struct ltr559_data *data = i2c_get_clientdata(client);
+	int ret;
+
+	//mutex_lock(&data->bus_lock);
+	ret = i2c_smbus_write_byte_data(client,
+			ltr559_PS_CONTR, enable);
+	//mutex_unlock(&data->bus_lock);
+
+	data->enable = enable;
+
+	return ret;
+}
+#endif
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
+
 
 static int ltr559_platform_hw_power_on(bool on)
 {
@@ -644,6 +719,126 @@ static int8_t I2C_Write(uint8_t *txData, uint8_t length)
 	return 0;
 }
 
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+/*calibration*/
+#if 0
+void ltr559_swap(int *x, int *y)
+{
+	int temp = *x;
+	*x = *y;
+	*y = temp;
+}
+
+static int ltr559_run_cross_talk_calibration(struct i2c_client *client)
+{
+	struct ltr559_data *data = i2c_get_clientdata(client);
+	unsigned int sum_of_pdata = 0;
+	unsigned int temp_pdata[20];
+	unsigned int ArySize = 20;
+	unsigned int cal_check_flag = 0;
+	int i, j;
+#if defined(LTR559_SENSOR_DEBUG)
+	int status;
+	int rdata;
+#endif
+	pr_info("%s: START proximity sensor calibration\n", __func__);
+	printk("LTR559 START proximity sensor calibration\n"); 
+
+RECALIBRATION:
+	ltr559_set_enable(client, PS_MODE_ACTIVE);/* Enable PS and Wait */
+
+#if defined(LTR559_SENSOR_DEBUG)
+	//mutex_lock(&data->bus_lock);
+	status = i2c_smbus_read_byte_data(client, ltr559_ALS_PS_STATUS);
+	rdata = i2c_smbus_read_byte_data(client, ltr559_PS_CONTR);
+	//mutex_unlock(&data->bus_lock);
+
+	pr_info("%s: LTR559_ENABLE_REG=%2d LTR559_STATUS_REG=%2d\n",
+			__func__, rdata, status);
+#endif
+
+	for (i = 0; i < 20; i++) {
+		mdelay(6);
+		//mutex_lock(&data->bus_lock);
+		temp_pdata[i] = i2c_smbus_read_word_data(client,
+				ltr559_PS_DATA_0);
+		//mutex_unlock(&data->bus_lock);
+	}
+
+	/* pdata sorting */
+	for (i = 0; i < ArySize - 1; i++)
+		for (j = i+1; j < ArySize; j++)
+			if (temp_pdata[i] > temp_pdata[j])
+				ltr559_swap(temp_pdata + i, temp_pdata + j);
+
+	/* calculate the cross-talk using central 10 data */
+	for (i = 5; i < 15; i++) {
+		pr_info("%s: temp_pdata = %d\n", __func__, temp_pdata[i]);
+		sum_of_pdata = sum_of_pdata + temp_pdata[i];
+	}
+
+	data->cross_talk = sum_of_pdata/10;
+	pr_info("%s: sum_of_pdata = %d   cross_talk = %d\n",
+			__func__, sum_of_pdata, data->cross_talk);
+
+	/*
+	 * this value is used at Hidden Menu to check
+	 * if the calibration is pass or fail
+	 */
+	data->avg_cross_talk = data->cross_talk;
+
+	if (data->cross_talk > 720) {
+		pr_warn("%s: invalid calibrated data\n", __func__);
+
+		if (cal_check_flag == 0) {
+			pr_info("%s: RECALIBRATION start\n", __func__);
+			cal_check_flag = 1;
+			sum_of_pdata =0;
+			goto RECALIBRATION;
+		} else {
+			pr_err("%s: CALIBRATION FAIL -> "
+			       "cross_talk is set to DEFAULT\n", __func__);
+			data->cross_talk = DEFAULT_CROSS_TALK;
+			ltr559_set_enable(client, 0x00); /* Power Off */
+			data->ps_cal_result = 0; /* 0:Fail, 1:Pass */
+			return -EINVAL;
+		}
+	}
+
+	data->ps_threshold = ADD_TO_CROSS_TALK + data->cross_talk;
+	data->ps_hysteresis_threshold =
+		data->ps_threshold - SUB_FROM_PS_THRESHOLD;
+
+	ltr559_set_enable(client, 0x00); /* Power Off */
+	data->ps_cal_result = 1;
+
+	pr_info("%s: total_pdata = %d & cross_talk = %d\n",
+			__func__, sum_of_pdata, data->cross_talk);
+	pr_info("%s: FINISH proximity sensor calibration\n", __func__);
+
+	/* Save the cross-talk to the non-volitile memory in the phone  */
+	return data->cross_talk;
+}
+
+
+/* apply the Cross-talk value to threshold */
+static void ltr559_set_ps_threshold_adding_cross_talk(
+		struct i2c_client *client, int cal_data)
+{
+	struct ltr559_data *ltr559 = i2c_get_clientdata(client);
+
+	if (cal_data > 770)
+		cal_data = 770;
+	if (cal_data < 0)
+		cal_data = 0;
+
+	ltr559->ps_threshold = ltr559_ps_detection_threshold + cal_data;
+	ltr559->ps_hysteresis_threshold = ltr559_ps_hsyteresis_threshold
+				+ cal_data;
+	dev_dbg(&client->dev, "%s: configurations are set\n", __func__);
+}
+#endif
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
 
 /* Set register bit */
 static int8_t _ltr559_set_bit(struct i2c_client *client, uint8_t set,
@@ -761,7 +956,7 @@ static uint16_t lux_formula(uint16_t ch0_adc, uint16_t ch1_adc, uint8_t eqtn)
 		ch0_coeff_i = 4;
 		ch1_coeff_i = 1;
 		ch0_coeff_f = 2785;
-		ch1_coeff_f = 9548;/*696;*/
+		ch1_coeff_f = 696;//9548;/*696;*/
 		win_fac = winfac2;
 		if ((ch1_coeff_f * ch1_adc) < (ch0_adc * ch0_coeff_f)) {
 			fac = 1;
@@ -801,6 +996,8 @@ static uint16_t lux_formula(uint16_t ch0_adc, uint16_t ch1_adc, uint8_t eqtn)
 		luxval_f = 0;
 		/*luxval = 0;*/
 	}
+	//APS_DBG("gain=%d,als_int_fac=%d,fac=%d, ch0_adc=%d,ch1_adc=%d\n", gain, als_int_fac, fac, ch0_adc, ch1_adc);
+	//APS_DBG("eqtn=%d,luxval_i=%d,luxval_f=%d\n", eqtn, luxval_i, luxval_f);
 	if (fac < 0)
 		luxval = (luxval_i  -  (luxval_f / 100)) /
 					(gain * als_int_fac);
@@ -814,7 +1011,7 @@ static uint16_t lux_formula(uint16_t ch0_adc, uint16_t ch1_adc, uint8_t eqtn)
 
 static uint16_t ratioHysterisis(uint16_t ch0_adc, uint16_t ch1_adc)
 {
-#define	RATIO_HYSVAL	10
+#define	RATIO_HYSVAL	2//10
 	int ratio;
 	uint8_t buffer[2], eqn_now;
 	int8_t ret;
@@ -840,13 +1037,14 @@ static uint16_t ratioHysterisis(uint16_t ch0_adc, uint16_t ch1_adc)
 
 	if (ratio < 45)
 		eqn_now = 1;
-	else if ((ratio >= 45) && (ratio < 68))
+	else if ((ratio >= 45) && (ratio < 64))
 		eqn_now = 2;
-	else if ((ratio >= 68) && (ratio < 99))
+	else if ((ratio >= 64) && (ratio < 99))
 		eqn_now = 3;
 	else if (ratio >= 99)
 		eqn_now = 4;
 
+    //APS_DBG("ratio=%d,eqn_now=%d,eqn_prev=%d,ratio_old=%d\n", ratio, eqn_now, eqn_prev,ratio_old);
 	if (eqn_prev == 0) {
 		luxval = lux_formula(ch0_calc, ch1_adc, eqn_now);
 		ratio_old = ratio;
@@ -882,14 +1080,26 @@ static uint16_t read_als_adc_value(struct ltr559_data *ltr559)
 	uint16_t value = -99;
 	int ch0_val;
 	int ch1_val;
-	uint8_t gain, value_temp, gain_chg_req = 0;
-	uint8_t buffer[4], temp;
+	uint8_t gain, value_temp;// gain_chg_req = 0;
+	uint8_t buffer[4], temp, als_ps_status;
 
 #define AGC_UP_THRESHOLD		40000
 #define AGC_DOWN_THRESHOLD	5000
 #define AGC_HYS					15
-#define MAX_VAL					50000
+#define MAX_VAL					65535
 
+//@added by zte.If ALS data is not ready,return lux_val_prev,start
+	buffer[0] = ltr559_ALS_PS_STATUS;
+	ret = I2C_Read(buffer, 1);
+	als_ps_status = buffer[0];
+    if(0 == (buffer[0] & 0X04))
+	{
+		//APS_DBG("%s,0x8C=%X, ALS data is not ready,return lux_val_prev=%d\n",__func__, buffer[0], lux_val_prev);
+
+	    return lux_val_prev;
+    }
+//@added by zte.If ALS data is not ready,return lux_val_prev,end
+	
 	/* ALS */
 	buffer[0] = ltr559_ALS_DATA_CH1_0;
 
@@ -932,8 +1142,8 @@ static uint16_t read_als_adc_value(struct ltr559_data *ltr559)
 	ch1_val &= ALS_VALID_MEASURE_MASK;
 	/*input_report_abs(ltr559->als_input_dev, ABS_MISC, ch1_val);*/
 	/*input_sync(ltr559->als_input_dev);*/
-
-	buffer[0] = ltr559_ALS_PS_STATUS;
+#if 0//@delete by zte 
+	buffer[0] = LTR559_ALS_PS_STATUS;
 	ret = I2C_Read(buffer, 1);
 	if (ret < 0) {
 		dev_err(&ltr559->i2c_client->dev,
@@ -941,9 +1151,9 @@ static uint16_t read_als_adc_value(struct ltr559_data *ltr559)
 
 		return ret;
 	}
-
-	value_temp = buffer[0];
-	temp = buffer[0];
+#endif
+	value_temp = als_ps_status;//buffer[0];
+	temp = als_ps_status;//buffer[0];
 	gain = (value_temp & 0x70);
 	gain >>= 4;
 
@@ -975,6 +1185,10 @@ static uint16_t read_als_adc_value(struct ltr559_data *ltr559)
 	if ((ch0_val == 0) && (ch1_val > 50))
 		value = lux_val_prev;
 	else {
+//@modify by zte,[change als gain in old code,don't do this],start
+		value = ratioHysterisis(ch0_val, ch1_val);
+		
+#if 0 
 		if (gain == 1) {
 			if ((ch0_val + ch1_val) <
 				((AGC_DOWN_THRESHOLD * 10) / AGC_HYS)) {
@@ -1005,15 +1219,22 @@ static uint16_t read_als_adc_value(struct ltr559_data *ltr559)
 				return ret;
 			}
 		}
+#endif
+//@modify by zte,[change als gain in old code,don't do this],end
 
 	}
-
+// 为了满足强光下线性的要求修改 ch0_val和ch1_val的和也不能超出最大值
+#if 1
 	if ((value > MAX_VAL) || (((ch0_val + ch1_val) >
 			MAX_VAL) && (temp & 0x80)))
 		value = MAX_VAL;
-
+#else
+	if ((value > MAX_VAL) && (temp & 0x80))
+		value = MAX_VAL;
+#endif
 	lux_val_prev = value;
 
+    //APS_DBG("%s,ch0=%d,ch1=%d,value=%d\n",__func__, ch0_val,ch1_val, value);
 	return value;
 }
 
@@ -1051,6 +1272,8 @@ static uint16_t read_ps_adc_value(struct ltr559_data *ltr559)
 
 	value = ps_val;
 
+	//APS_DBG("%s, ps_val=%d\n", __func__, ps_val);
+
 	return value;
 }
 
@@ -1059,6 +1282,7 @@ static int8_t als_mode_setup(uint8_t alsMode_set_reset,
 					 struct ltr559_data *ltr559)
 {
 	int8_t ret = 0;
+    uint8_t buffer[1];
 
 	ret = _ltr559_set_bit(ltr559->i2c_client, alsMode_set_reset,
 				ltr559_ALS_CONTR, ALS_MODE_ACTIVE);
@@ -1067,7 +1291,10 @@ static int8_t als_mode_setup(uint8_t alsMode_set_reset,
 			"%s ALS mode setup fail...\n", __func__);
 		return ret;
 	}
-
+	
+    buffer[0] = ltr559_ALS_CONTR;
+	I2C_Read(buffer, 1);
+	
 	return ret;
 }
 
@@ -1185,7 +1412,8 @@ static int8_t ps_mode_setup(uint8_t psMode_set_reset,
 				struct ltr559_data *ltr559)
 {
 	int8_t ret = 0;
-
+    uint8_t buffer[1];
+    
 	ret = _ltr559_set_bit(ltr559->i2c_client, psMode_set_reset,
 					ltr559_PS_CONTR, PS_MODE_ACTIVE);
 	if (ret < 0) {
@@ -1197,7 +1425,10 @@ static int8_t ps_mode_setup(uint8_t psMode_set_reset,
 	/* default state is far-away */
 	input_report_abs(ltr559->ps_input_dev, ABS_DISTANCE, FAR_VAL);
 	input_sync(ltr559->ps_input_dev);
-
+	
+    buffer[0] = ltr559_PS_CONTR;
+	I2C_Read(buffer, 1);
+	
 	return ret;
 }
 
@@ -2193,7 +2424,6 @@ static int8_t ps_range_readback(uint16_t *lt, uint16_t *ht,
 	return ret;
 }
 
-
 static uint16_t discardMinMax_findCTMov_Avg(uint16_t *ps_val)
 {
 #define MAX_NUM_PS_DATA1		PS_MAX_MOV_AVG_KEPT_DATA_CTR
@@ -2248,7 +2478,6 @@ static uint16_t discardMinMax_findCTMov_Avg(uint16_t *ps_val)
 
 	return temp;
 }
-
 
 static uint16_t findCT_Avg(uint16_t *ps_val)
 {
@@ -2337,9 +2566,11 @@ static void report_ps_input_event(struct ltr559_data *ltr559)
 {
 	int8_t ret;
 	uint16_t adc_value;
+	int8_t rc;
+	//uint8_t buffer[4];
 
 	adc_value = read_ps_adc_value(ltr559);
-
+    printk("ZTE ps_adc value is %d\n",adc_value);
 	if (ps_grabData_stage == 0) {
 		if (ps_kept_data_counter < PS_MAX_INIT_KEPT_DATA_COUNTER) {
 			if (adc_value != 0) {
@@ -2351,12 +2582,13 @@ static void report_ps_input_event(struct ltr559_data *ltr559)
 
 		if (ps_kept_data_counter >= PS_MAX_INIT_KEPT_DATA_COUNTER) {
 			ps_ct_avg = findCT_Avg(ps_init_kept_data);
-			ftn_init = ps_ct_avg * 15;
+			//ftn_init = ps_ct_avg * 15;
 			ps_grabData_stage = 1;
 		}
 	}
 
 	if (ps_grabData_stage == 1) {
+	    #if 0
 		if ((ftn_init - (ps_ct_avg * 10)) < 1000)
 			ftn_final = (ps_ct_avg * 10) + 1000;
 		else {
@@ -2370,12 +2602,80 @@ static void report_ps_input_event(struct ltr559_data *ltr559)
 		ntf_final /= 100;
 		ntf_final += ps_ct_avg;
 		ftn_final /= 10;
-		if (ntf_final >= PS_MAX_MEASURE_VAL)
-			ntf_final = PS_MAX_MEASURE_VAL;
+		#endif
+        #ifdef CONFIG_LTR559_A50
+		if (ps_ct_avg <=50){
+		   ftn_final = ps_ct_avg +35;
+		   ntf_final = ps_ct_avg +20;
+		  }
+		else if (ps_ct_avg <= 100){
+		  ftn_final = ps_ct_avg +35;
+		  ntf_final = ps_ct_avg +20;
+		  }
+		else if (ps_ct_avg <=150){
+		  ftn_final = ps_ct_avg +35;
+		  ntf_final = ps_ct_avg +20;
+		  }
+		else if (ps_ct_avg <=200){
+		  ftn_final = ps_ct_avg +37;
+		  ntf_final = ps_ct_avg +22;
+		  }
+		else if (ps_ct_avg <=300){
+		  ftn_final = ps_ct_avg +45;
+		  ntf_final = ps_ct_avg +25;
+		  }
+		else if (ps_ct_avg <=400){
+		  ftn_final = ps_ct_avg +50;
+		  ntf_final = ps_ct_avg +20;
+		  }
+		else if (ps_ct_avg <=1400){
+		  ftn_final = ps_ct_avg +60;
+		  ntf_final = ps_ct_avg +20;
+		  }
+		else {
+		  ftn_final = 2000;
+		  ntf_final = 1500;
+		}
+		#else
+		if (ps_ct_avg <=50){
+		   ftn_final = ps_ct_avg +80;
+		   ntf_final = ps_ct_avg +50;
+		  }
+		else if (ps_ct_avg <= 100){
+		  ftn_final = ps_ct_avg +130;
+		  ntf_final = ps_ct_avg +100;
+		  }
+		else if (ps_ct_avg <=150){
+		  ftn_final = ps_ct_avg +140;
+		  ntf_final = ps_ct_avg +110;
+		  }
+		else if (ps_ct_avg <=200){
+		  ftn_final = ps_ct_avg +150;
+		  ntf_final = ps_ct_avg +120;
+		  }
+		else if (ps_ct_avg <=300){
+		  ftn_final = ps_ct_avg +180;
+		  ntf_final = ps_ct_avg +150;
+		  }
+		else if (ps_ct_avg <=400){
+		  ftn_final = ps_ct_avg +320;
+		  ntf_final = ps_ct_avg +240;
+		  }
+		else if (ps_ct_avg <=1400){
+		  ftn_final = ps_ct_avg +500;
+		  ntf_final = ps_ct_avg +400;
+		  }
+		else {
+		  ftn_final = 2000;
+		  ntf_final = 1500;
+		}
+		#endif
+		//if (ntf_final >= PS_MAX_MEASURE_VAL)
+			//ntf_final = PS_MAX_MEASURE_VAL;
 
-		if (ftn_final >= PS_MAX_MEASURE_VAL)
-			ftn_final = PS_MAX_MEASURE_VAL;
-
+		//if (ftn_final >= PS_MAX_MEASURE_VAL)
+			//ftn_final = PS_MAX_MEASURE_VAL;
+        printk("ZTE ps_ct_avg is %d\n",ps_ct_avg);
 		ret = ps_meas_rate_setup(50, ltr559);
 		if (ret < 0) {
 			dev_err(&ltr559->i2c_client->dev,
@@ -2393,14 +2693,27 @@ static void report_ps_input_event(struct ltr559_data *ltr559)
 				input_report_abs(ltr559->ps_input_dev,
 					ABS_DISTANCE, NEAR_VAL);
 				input_sync(ltr559->ps_input_dev);
+				rc = set_ps_range(ntf_final,2047,
+	                     LO_N_HI_LIMIT,ltr559);
+				printk("Now is near!!!\n");
 			}
 
 			if (adc_value < ntf_final) {
 				input_report_abs(ltr559->ps_input_dev,
 					ABS_DISTANCE, FAR_VAL);
 				input_sync(ltr559->ps_input_dev);
+				rc = set_ps_range(0x00,ftn_final,
+	                     LO_N_HI_LIMIT,ltr559);
+				printk("Now is far!!!\n");
 			}
-
+		//buffer[0] = ltr559_PS_THRES_UP_0;
+        //ret = I2C_Read(buffer, 4);
+        printk("ZTE ntf_final is %d\n",ntf_final);
+        printk("ZTE ftn_final is %d\n",ftn_final);
+        //printk("0x90 is %d\n",buffer[0]);
+        //printk("0x91 is %d\n",buffer[1]);
+        //printk("0x92 is %d\n",buffer[2]);
+        //printk("0x93 is %d\n",buffer[3]);
 		}
 		/* report NEAR or FAR to the user layer */
 
@@ -2415,14 +2728,15 @@ static void report_ps_input_event(struct ltr559_data *ltr559)
 		if (ps_movavg_data_counter >= PS_MAX_MOV_AVG_KEPT_DATA_CTR) {
 			ps_movct_avg =
 				discardMinMax_findCTMov_Avg(ps_movavg_data);
-
+            printk("ZTE ps_movct_avg is %d\n",ps_movct_avg);
 			if (ps_movct_avg < ps_ct_avg) {
 				ps_ct_avg = ps_movct_avg;
-				ftn_init = ps_ct_avg * 17;
+				//ftn_init = ps_ct_avg * 17;
 				ps_grabData_stage = 1;
 			}
 			ps_movavg_data_counter = 5;
 		}
+		
 
 	}
 
@@ -2433,15 +2747,38 @@ static void report_als_input_event(struct ltr559_data *ltr559)
 {
 	/*int8_t ret;*/
 	uint16_t adc_value;
+	ktime_t timestamp;
 	/*int thresh_hi, thresh_lo, thresh_delta;*/
 	/*ltr559->mode = ALS;*/
 	/*adc_value = read_adc_value (ltr559);*/
+	timestamp = ktime_get_boottime();
 	adc_value = read_als_adc_value(ltr559);
-
+    //printk("ZTE als_adc is %d\n",adc_value);
 	input_report_abs(ltr559->als_input_dev, ABS_MISC, adc_value);
+	input_event(ltr559->als_input_dev,
+		EV_SYN, SYN_TIME_SEC,
+		ktime_to_timespec(timestamp).tv_sec);
+	input_event(ltr559->als_input_dev,
+		EV_SYN, SYN_TIME_NSEC,
+		ktime_to_timespec(timestamp).tv_nsec);	
 	input_sync(ltr559->als_input_dev);
 
 }
+/* @added by zte.for als polling mode,start */
+static void ltr559_als_polling_work_handler(struct work_struct *work)
+{
+	struct ltr559_data *data = container_of(work,
+			struct ltr559_data, als_dwork.work);
+
+    //APS_DBG("%s\n", __func__);
+	
+    report_als_input_event(data);
+
+	queue_delayed_work(data->workqueue,
+			&data->als_dwork,
+			msecs_to_jiffies(data->als_poll_delay));
+}
+/* @added by zte.for als polling mode,end */
 
 /* Work when interrupt */
 static void ltr559_schedwork(struct work_struct *work)
@@ -2462,17 +2799,19 @@ static void ltr559_schedwork(struct work_struct *work)
 	status = buffer[0];
 	interrupt_stat = status & 0x0A;
 	newdata = status & 0x05;
+	//APS_DBG("%s, status=0X%X\n", __func__, status);
 
 	/* PS interrupt and PS with new data*/
+	//printk("ltr559 interrupt status is %x\n",status);
 	if ((interrupt_stat & 0x02) && (newdata & 0x01)) {
-
+        //APS_DBG("%s, ps interrupt\n", __func__);
 		ltr559->ps_irq_flag = 1;
 		report_ps_input_event(ltr559);
 		ltr559->ps_irq_flag = 0;
 	}
 	/* ALS interrupt and ALS with new data*/
 	if ((interrupt_stat & 0x08) && (newdata & 0x04)) {
-
+        //APS_DBG("%s, als interrupt\n", __func__);
 		ltr559->als_irq_flag = 1;
 		report_als_input_event(ltr559);
 		ltr559->als_irq_flag = 0;
@@ -2488,6 +2827,7 @@ static irqreturn_t ltr559_irq_handler(int irq, void *data)
 {
 	struct ltr559_data *ltr559 = data;
 
+    //APS_DBG("%s, in\n", __func__);
 	/* disable an irq without waiting */
 	disable_irq_nosync(ltr559->irq);
 
@@ -2519,7 +2859,7 @@ static int ltr559_gpio_irq(struct ltr559_data *ltr559)
 	/* Configure an active low trigger interrupt for the device */
 	/*rc = request_irq(ltr559->irq, ltr559_irq_handler,
 				IRQF_TRIGGER_FALLING, DEVICE_NAME, ltr559);*/
-	rc = request_irq(ltr559->irq, ltr559_irq_handler, IRQF_TRIGGER_LOW,
+	rc = request_irq(ltr559->irq, ltr559_irq_handler, IRQF_TRIGGER_LOW,//IRQF_TRIGGER_LOW,
 				DEVICE_NAME, ltr559);
 	if (rc < 0) {
 		dev_err(&ltr559->i2c_client->dev,
@@ -2542,9 +2882,12 @@ static int8_t ps_enable_init(struct ltr559_data *ltr559)
 {
 	int8_t rc = 0;
 	uint8_t buffer[1]; /* for dummy read*/
-
-	setThrDuringCall();
-
+	
+    if(1)
+    {
+	    setThrDuringCall();
+    }
+    
 	if (ltr559->ps_enable_flag) {
 		dev_info(&ltr559->i2c_client->dev,
 			"%s: already enabled\n", __func__);
@@ -2553,11 +2896,11 @@ static int8_t ps_enable_init(struct ltr559_data *ltr559)
 
 	/* Set thresholds where interrupt will *not* be generated */
 #if ACT_INTERRUPT
-	/*rc = set_ps_range(PS_MIN_MEASURE_VAL, PS_MIN_MEASURE_VAL,
-				LO_N_HI_LIMIT);*/
+	rc = set_ps_range(PS_MIN_MEASURE_VAL, PS_MIN_MEASURE_VAL,
+				LO_N_HI_LIMIT, ltr559);
 	/*rc = set_ps_range(PS_MIN_MEASURE_VAL, 400, LO_N_HI_LIMIT);*/
-	rc = set_ps_range(ltr559->default_ps_highthresh,
-		ltr559->default_ps_lowthresh, LO_N_HI_LIMIT, ltr559);
+	/*rc = set_ps_range(ltr559->default_ps_lowthresh,
+		ltr559->default_ps_highthresh, LO_N_HI_LIMIT, ltr559);*/
 #else
 	rc = set_ps_range(PS_MIN_MEASURE_VAL, PS_MAX_MEASURE_VAL,
 			LO_N_HI_LIMIT, ltr559);
@@ -2575,7 +2918,7 @@ static int8_t ps_enable_init(struct ltr559_data *ltr559)
 		return rc;
 	}
 
-	rc = ps_ledPulseCount_setup(0x08, ltr559);
+	rc = ps_ledPulseCount_setup(0x04, ltr559);
 	if (rc < 0) {
 		dev_err(&ltr559->i2c_client->dev,
 			"%s: PS LED pulse count setup Fail...\n", __func__);
@@ -2633,7 +2976,7 @@ static int8_t ps_disable(struct ltr559_data *ltr559)
 
 
 /* PS open fops */
-ssize_t ps_open(struct inode *inode, struct file *file)
+int ps_open(struct inode *inode, struct file *file)
 {
 	struct ltr559_data *ltr559 = sensor_info;
 
@@ -2647,7 +2990,7 @@ ssize_t ps_open(struct inode *inode, struct file *file)
 
 
 /* PS release fops */
-ssize_t ps_release(struct inode *inode, struct file *file)
+int ps_release(struct inode *inode, struct file *file)
 {
 	struct ltr559_data *ltr559 = sensor_info;
 
@@ -2713,7 +3056,8 @@ static int8_t als_enable_init(struct ltr559_data *ltr559)
 		return rc;
 	}
 
-	rc = als_meas_rate_reg_setup(0x03, ltr559);
+//	rc = als_meas_rate_reg_setup(0x03, ltr559);
+	rc = als_meas_rate_reg_setup(0x01, ltr559);//als integration time:100ms  measurement rate:100ms
 	if (rc < 0) {
 		dev_err(&ltr559->i2c_client->dev,
 			"%s: ALS_Meas_Rate register Setup Fail...\n", __func__);
@@ -2721,6 +3065,8 @@ static int8_t als_enable_init(struct ltr559_data *ltr559)
 	}
 
 	/* Set minimummax thresholds where interrupt will *not* be generated */
+/* @delete by zte.Als polling mode,start */
+//#if 0
 #if ACT_INTERRUPT
 	/*rc = set_als_range(ALS_MIN_MEASURE_VAL,
 				ALS_MIN_MEASURE_VAL, LO_N_HI_LIMIT);*/
@@ -2735,8 +3081,13 @@ static int8_t als_enable_init(struct ltr559_data *ltr559)
 			"%s : ALS Thresholds Write Fail...\n", __func__);
 		return rc;
 	}
-
-	rc = als_contr_setup(0x0C, ltr559);
+//#endif
+/* @delete by zte.Als polling mode,end */
+#ifdef CONFIG_LTR559_A50
+    rc = als_contr_setup(0x0C, ltr559);//als gain 8X
+#else
+	rc = als_contr_setup(0x00, ltr559);//als gain 1X
+#endif
 	if (rc < 0) {
 		dev_err(&ltr559->i2c_client->dev,
 			"%s: ALS Enable Fail...\n", __func__);
@@ -2778,7 +3129,7 @@ static int8_t als_disable(struct ltr559_data *ltr559)
 }
 
 
-ssize_t als_open(struct inode *inode, struct file *file)
+int als_open(struct inode *inode, struct file *file)
 {
 	struct ltr559_data *ltr559 = sensor_info;
 	int8_t rc = 0;
@@ -2794,7 +3145,7 @@ ssize_t als_open(struct inode *inode, struct file *file)
 }
 
 
-ssize_t als_release(struct inode *inode, struct file *file)
+int als_release(struct inode *inode, struct file *file)
 {
 	struct ltr559_data *ltr559 = sensor_info;
 
@@ -2862,7 +3213,7 @@ static ssize_t als_adc_show(struct device *dev,
 	value = read_als_adc_value(ltr559);
 	input_report_abs(ltr559->als_input_dev, ABS_MISC, value);
 	input_sync(ltr559->als_input_dev);
-	ret = snprintf(buf, 1 * sizeof(buf), "%d", value);
+	ret = snprintf(buf, PAGE_SIZE, "%d", value);
 
 	return ret;
 }
@@ -2880,7 +3231,7 @@ static ssize_t ps_adc_show(struct device *dev,
 	/*ltr559->mode = PS;*/
 	/*value = read_adc_value(ltr559);*/
 	value = read_ps_adc_value(ltr559);
-	ret = snprintf(buf, 1 * sizeof(buf), "%d", value);
+	ret = snprintf(buf, PAGE_SIZE, "%d", value);
 
 	return ret;
 }
@@ -2909,7 +3260,7 @@ static ssize_t psadcsaturationBit_show(struct device *dev,
 	/*value = read_adc_value(ltr559);*/
 	saturation_bit = (value >> 15);
 	value &= PS_VALID_MEASURE_MASK;
-	ret = snprintf(buf, 1 * sizeof(buf), "%d %d\n", value, saturation_bit);
+	ret = snprintf(buf, PAGE_SIZE, "%d %d\n", value, saturation_bit);
 
 	return ret;
 }
@@ -3001,7 +3352,6 @@ static ssize_t ltr559help_show(struct device *dev,
 	pr_info("Example...to set 0 count : echo 0 > psledpulsecountsetup\n");
 	pr_info("Example...to set 13 counts : echo 13 > psledpulsecountsetup\n");
 	/* address 0x83*/
-
 	/* address 0x84*/
 	pr_info("Address 0x84 (PS_MEAS_RATE)\n");
 	pr_info("PS meas repeat rate 50ms : echo 50 > psmeasratesetup\n");
@@ -3106,6 +3456,116 @@ static ssize_t ltr559help_show(struct device *dev,
 static DEVICE_ATTR(ltr559help, 0444, ltr559help_show, NULL);
 
 
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+/*calibration sysfs*/
+#if 0
+static ssize_t ltr559_show_status(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	//struct ltr559_data *data = i2c_get_clientdata(client);
+	int status;
+	int rdata;
+
+	//mutex_lock(&data->bus_lock);
+	status = i2c_smbus_read_byte_data(client,ltr559_ALS_PS_STATUS);
+	rdata = i2c_smbus_read_byte_data(client,ltr559_ALS_CONTR);
+	//mutex_unlock(&data->bus_lock);
+
+	pr_info("%s: LTR559_ENABLE_REG=%2d LTR559_STATUS_REG=%2d\n",
+			__func__, rdata, status);
+
+	return sprintf(buf, "%d\n", status);
+}
+
+static DEVICE_ATTR(status, S_IRUSR | S_IRGRP, ltr559_show_status, NULL);
+
+
+static ssize_t ltr559_show_ps_run_calibration(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ltr559_data *data = i2c_get_clientdata(client);
+    printk("ltr559 cat cal success!!!!!!\n"); 
+	return sprintf(buf, "%d\n", data->avg_cross_talk);
+}
+
+static ssize_t ltr559_store_ps_run_calibration(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ltr559_data *data = i2c_get_clientdata(client);
+	int ret = 0;
+
+	/* start calibration */
+	ret = ltr559_run_cross_talk_calibration(client);
+    printk("ltr559 ps calibration(): start!!!!!!!!\n"); 
+	/* set threshold for near/far status */
+	data->ps_threshold = data->cross_talk + ADD_TO_CROSS_TALK;
+	data->ps_hysteresis_threshold =
+		data->ps_threshold - SUB_FROM_PS_THRESHOLD;
+
+	pr_info("%s: [piht][pilt][c_t] = [%d][%d][%d]\n", __func__,
+			data->ps_threshold,
+			data->ps_hysteresis_threshold,
+			data->cross_talk);
+
+	if (ret < 0)
+		return ret;
+
+	return count;
+}
+
+static DEVICE_ATTR(ps_run_calibration,  0666,
+		ltr559_show_ps_run_calibration,
+		ltr559_store_ps_run_calibration);
+
+
+static ssize_t ltr559_show_ps_default_crosstalk(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	printk("ltr559 read ps default CT\n");
+	return sprintf(buf, "%d\n", DEFAULT_CROSS_TALK);
+}
+
+static ssize_t ltr559_store_ps_default_crosstalk(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ltr559_data *data = i2c_get_clientdata(client);
+    printk("ltr559 write ps default CT\n");
+	data->ps_threshold = DEFAULT_CROSS_TALK + ADD_TO_CROSS_TALK;
+	data->ps_hysteresis_threshold =
+		data->ps_threshold - SUB_FROM_PS_THRESHOLD;
+
+	pr_info("%s: [piht][pilt][c_t] = [%d][%d][%d]\n", __func__,
+			data->ps_threshold,
+			data->ps_hysteresis_threshold,
+			data->cross_talk);
+
+	return count;
+}
+
+static DEVICE_ATTR(ps_default_crosstalk, S_IRUGO | S_IWUSR | S_IWGRP,
+		ltr559_show_ps_default_crosstalk,
+		ltr559_store_ps_default_crosstalk);
+
+/* for Calibration result */
+static ssize_t ltr559_show_ps_cal_result(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ltr559_data *data = i2c_get_clientdata(client);
+
+	return sprintf(buf, "%d\n", data->ps_cal_result);
+}
+
+static DEVICE_ATTR(ps_cal_result, S_IRUGO, ltr559_show_ps_cal_result, NULL);
+#endif
+/*calibration sysfs end*/
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
+
+
 static ssize_t alsmodesetup_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -3120,7 +3580,7 @@ static ssize_t alsmodesetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3132,8 +3592,7 @@ static ssize_t alsmodesetup_store(struct device *dev,
 	int8_t ret;
 	struct ltr559_data *ltr559 = sensor_info;
 
-	if (sscanf(buf, "%d", &param) < 1)
-		;
+	sscanf(buf, "%d", &param);
 	dev_dbg(&ltr559->i2c_client->dev,
 				"%s: store value = %d\n", __func__, param);
 
@@ -3147,7 +3606,7 @@ static ssize_t alsmodesetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(enable_als_sensor, 0666,
+static DEVICE_ATTR(enable_als_sensor, 0664,
 				alsmodesetup_show, alsmodesetup_store);
 
 
@@ -3166,7 +3625,7 @@ static ssize_t alsswresetsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3180,8 +3639,7 @@ static ssize_t alsswresetsetup_store(struct device *dev,
 
 	struct ltr559_data *ltr559 = sensor_info;
 
-	if (sscanf(buf, "%d", &param) < 1)
-		;
+	sscanf(buf, "%d", &param);
 	dev_dbg(&ltr559->i2c_client->dev,
 			"%s: store value = %d\n", __func__, param);
 
@@ -3195,7 +3653,7 @@ static ssize_t alsswresetsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(alsswresetsetup, 0666,
+static DEVICE_ATTR(alsswresetsetup, 0664,
 				alsswresetsetup_show, alsswresetsetup_store);
 
 
@@ -3213,7 +3671,7 @@ static ssize_t alsgainsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3275,12 +3733,12 @@ static ssize_t alscontrsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
 
-static DEVICE_ATTR(alsgainsetup, 0666, alsgainsetup_show, alsgainsetup_store);
+static DEVICE_ATTR(alsgainsetup, 0664, alsgainsetup_show, alsgainsetup_store);
 
 static ssize_t alscontrsetup_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
@@ -3337,7 +3795,7 @@ static ssize_t alscontrsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(alscontrsetup, 0666, alscontrsetup_show,
+static DEVICE_ATTR(alscontrsetup, 0664, alscontrsetup_show,
 					alscontrsetup_store);
 
 static ssize_t psmodesetup_show(struct device *dev,
@@ -3354,7 +3812,7 @@ static ssize_t psmodesetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3367,8 +3825,7 @@ static ssize_t psmodesetup_store(struct device *dev,
 	int8_t ret;
 	struct ltr559_data *ltr559 = sensor_info;
 
-	if (sscanf(buf, "%d", &param) < 1)
-		;
+	sscanf(buf, "%d", &param);
 	dev_dbg(&ltr559->i2c_client->dev,
 		"%s: store value = %d\n", __func__, param);
 
@@ -3383,7 +3840,7 @@ static ssize_t psmodesetup_store(struct device *dev,
 
 }
 
-static DEVICE_ATTR(enable_ps_sensor, 0666, psmodesetup_show, psmodesetup_store);
+static DEVICE_ATTR(enable_ps_sensor, 0664, psmodesetup_show, psmodesetup_store);
 
 
 static ssize_t psgainsetup_show(struct device *dev,
@@ -3400,7 +3857,7 @@ static ssize_t psgainsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3441,7 +3898,7 @@ static ssize_t psgainsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(psgainsetup, 0666, psgainsetup_show, psgainsetup_store);
+static DEVICE_ATTR(psgainsetup, 0664, psgainsetup_show, psgainsetup_store);
 
 
 static ssize_t pssatuindicasetup_show(struct device *dev,
@@ -3458,7 +3915,7 @@ static ssize_t pssatuindicasetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3471,8 +3928,7 @@ static ssize_t pssatuindicasetup_store(struct device *dev,
 	int8_t ret;
 	struct ltr559_data *ltr559 = sensor_info;
 
-	if (sscanf(buf, "%d", &param) < 1)
-		;
+	sscanf(buf, "%d", &param);
 	dev_dbg(&ltr559->i2c_client->dev,
 		"%s: store value = %d\n", __func__, param);
 
@@ -3486,7 +3942,7 @@ static ssize_t pssatuindicasetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(pssatuindicasetup, 0666,
+static DEVICE_ATTR(pssatuindicasetup, 0664,
 		pssatuindicasetup_show, pssatuindicasetup_store);
 
 
@@ -3504,7 +3960,7 @@ static ssize_t pscontrsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3564,7 +4020,7 @@ static ssize_t pscontrsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(pscontrsetup, 0666, pscontrsetup_show, pscontrsetup_store);
+static DEVICE_ATTR(pscontrsetup, 0664, pscontrsetup_show, pscontrsetup_store);
 
 
 static ssize_t psledcurrsetup_show(struct device *dev,
@@ -3581,7 +4037,7 @@ static ssize_t psledcurrsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -3644,7 +4100,7 @@ static ssize_t psledcurrsetup_store(struct device *dev,
 
 }
 
-static DEVICE_ATTR(psledcurrsetup, 0666,
+static DEVICE_ATTR(psledcurrsetup, 0664,
 			psledcurrsetup_show, psledcurrsetup_store);
 
 
@@ -3662,7 +4118,7 @@ static ssize_t psledcurrduty_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -3716,7 +4172,7 @@ static ssize_t psledcurrduty_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(psledcurrduty, 0666,
+static DEVICE_ATTR(psledcurrduty, 0664,
 			psledcurrduty_show, psledcurrduty_store);
 
 
@@ -3734,7 +4190,7 @@ static ssize_t psledpulsefreqsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -3788,7 +4244,7 @@ static ssize_t psledpulsefreqsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(psledpulsefreqsetup, 0666,
+static DEVICE_ATTR(psledpulsefreqsetup, 0664,
 		psledpulsefreqsetup_show, psledpulsefreqsetup_store);
 
 
@@ -3806,7 +4262,7 @@ static ssize_t psledsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3866,7 +4322,7 @@ static ssize_t psledsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(psledsetup, 0666, psledsetup_show, psledsetup_store);
+static DEVICE_ATTR(psledsetup, 0664, psledsetup_show, psledsetup_store);
 
 
 static ssize_t psledpulsecountsetup_show(struct device *dev,
@@ -3883,7 +4339,7 @@ static ssize_t psledpulsecountsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -3934,7 +4390,7 @@ static ssize_t psledpulsecountsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(psledpulsecountsetup, 0666,
+static DEVICE_ATTR(psledpulsecountsetup, 0664,
 			psledpulsecountsetup_show, psledpulsecountsetup_store);
 
 
@@ -3952,7 +4408,7 @@ static ssize_t psmeasratesetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -4022,7 +4478,7 @@ static ssize_t psmeasratesetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(psmeasratesetup, 0666,
+static DEVICE_ATTR(psmeasratesetup, 0664,
 		psmeasratesetup_show, psmeasratesetup_store);
 
 
@@ -4041,7 +4497,7 @@ static ssize_t alsmeasratesetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf,PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -4100,7 +4556,6 @@ static ssize_t alsmeasratesetup_store(struct device *dev,
 				(param_temp[2] * 10) + param_temp[3]);
 	dev_dbg(&ltr559->i2c_client->dev,
 			"%s: store value = %d\n", __func__, param);
-
 	ret = als_meas_rate_setup(param, ltr559);
 	if (ret < 0) {
 		dev_err(&ltr559->i2c_client->dev,
@@ -4111,7 +4566,7 @@ static ssize_t alsmeasratesetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(alsmeasratesetup, 0666,
+static DEVICE_ATTR(alsmeasratesetup, 0664,
 				alsmeasratesetup_show, alsmeasratesetup_store);
 
 
@@ -4129,7 +4584,7 @@ static ssize_t alsintegtimesetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -4184,7 +4639,7 @@ static ssize_t alsintegtimesetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(alsintegtimesetup, 0666,
+static DEVICE_ATTR(alsintegtimesetup, 0664,
 			alsintegtimesetup_show, alsintegtimesetup_store);
 
 
@@ -4202,7 +4657,7 @@ static ssize_t alsmeasrateregsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -4263,7 +4718,7 @@ static ssize_t alsmeasrateregsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(alsmeasrateregsetup, 0666,
+static DEVICE_ATTR(alsmeasrateregsetup, 0664,
 			alsmeasrateregsetup_show, alsmeasrateregsetup_store);
 
 
@@ -4281,7 +4736,7 @@ static ssize_t partid_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4303,7 +4758,7 @@ static ssize_t revid_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4325,7 +4780,7 @@ static ssize_t partidreg_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4347,11 +4802,10 @@ static ssize_t manuid_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
-
 static DEVICE_ATTR(manuid, 0444, manuid_show, NULL);
 
 
@@ -4369,7 +4823,7 @@ static ssize_t psdatastatus_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4391,7 +4845,7 @@ static ssize_t psinterruptstatus_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4413,7 +4867,7 @@ static ssize_t alsdatastatus_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4435,7 +4889,7 @@ static ssize_t alsinterruptstatus_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4457,7 +4911,7 @@ static ssize_t alsgainstatus_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4479,7 +4933,7 @@ static ssize_t alsdatavaliditystatus_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4502,7 +4956,7 @@ static ssize_t alspsstatusreg_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 
@@ -4525,7 +4979,7 @@ static ssize_t alsch0ch1rawcalc_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d %d %d\n",
+	ret = snprintf(buf, PAGE_SIZE, "%d %d %d\n",
 			rdback_val1, rdback_val2, rdback_val3);
 
 	return ret;
@@ -4549,7 +5003,7 @@ static ssize_t setpsoffset_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4628,8 +5082,7 @@ static ssize_t setpsoffset_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(setpsoffset, 0666, setpsoffset_show, setpsoffset_store);
-
+static DEVICE_ATTR(setpsoffset, 0664, setpsoffset_show, setpsoffset_store);
 
 static ssize_t interruptmodesetup_show(struct device *dev,
 			struct device_attribute *attr, char *buf)
@@ -4645,7 +5098,7 @@ static ssize_t interruptmodesetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4659,8 +5112,7 @@ static ssize_t interruptmodesetup_store(struct device *dev,
 
 	struct ltr559_data *ltr559 = sensor_info;
 
-	if (sscanf(buf, "%d", &param) < 1)
-		;
+	sscanf(buf, "%d", &param);
 	dev_dbg(&ltr559->i2c_client->dev,
 				"%s: store value = %d\n", __func__, param);
 
@@ -4674,7 +5126,7 @@ static ssize_t interruptmodesetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(interruptmodesetup, 0666,
+static DEVICE_ATTR(interruptmodesetup, 0664,
 		interruptmodesetup_show, interruptmodesetup_store);
 
 
@@ -4692,7 +5144,7 @@ static ssize_t interruptpolarsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4706,8 +5158,7 @@ static ssize_t interruptpolarsetup_store(struct device *dev,
 
 	struct ltr559_data *ltr559 = sensor_info;
 
-	if (sscanf(buf, "%d", &param) < 1)
-		;
+	sscanf(buf, "%d", &param);
 	dev_dbg(&ltr559->i2c_client->dev,
 			"%s: store value = %d\n", __func__, param);
 
@@ -4721,7 +5172,7 @@ static ssize_t interruptpolarsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(interruptpolarsetup, 0666,
+static DEVICE_ATTR(interruptpolarsetup, 0664,
 			interruptpolarsetup_show, interruptpolarsetup_store);
 
 
@@ -4739,7 +5190,7 @@ static ssize_t interruptsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4799,7 +5250,7 @@ static ssize_t interruptsetup_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(interruptsetup, 0666,
+static DEVICE_ATTR(interruptsetup, 0664,
 			interruptsetup_show, interruptsetup_store);
 
 
@@ -4817,7 +5268,7 @@ static ssize_t interruptpersistsetup_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d\n", rdback_val);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", rdback_val);
 
 	return ret;
 }
@@ -4879,7 +5330,7 @@ static ssize_t interruptpersistsetup_store(struct device *dev,
 
 }
 
-static DEVICE_ATTR(interruptpersistsetup, 0666,
+static DEVICE_ATTR(interruptpersistsetup, 0664,
 	interruptpersistsetup_show, interruptpersistsetup_store);
 
 
@@ -4976,7 +5427,7 @@ static ssize_t setalslothrerange_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(setalslothrerange, 0222, NULL, setalslothrerange_store);
+static DEVICE_ATTR(setalslothrerange, 0220, NULL, setalslothrerange_store);
 
 
 static ssize_t setalshithrerange_store(struct device *dev,
@@ -5072,7 +5523,7 @@ static ssize_t setalshithrerange_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(setalshithrerange, 0222, NULL, setalshithrerange_store);
+static DEVICE_ATTR(setalshithrerange, 0220, NULL, setalshithrerange_store);
 
 static ssize_t dispalsthrerange_show(struct device *dev,
 			struct device_attribute *attr, char *buf)
@@ -5088,7 +5539,7 @@ static ssize_t dispalsthrerange_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d %d\n", rdback_lo, rdback_hi);
+	ret = snprintf(buf, PAGE_SIZE, "%d %d\n", rdback_lo, rdback_hi);
 
 	return ret;
 }
@@ -5168,7 +5619,7 @@ static ssize_t setpslothrerange_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(setpslothrerange, 0222, NULL, setpslothrerange_store);
+static DEVICE_ATTR(setpslothrerange, 0220, NULL, setpslothrerange_store);
 
 
 static ssize_t setpshithrerange_store(struct device *dev,
@@ -5243,7 +5694,7 @@ static ssize_t setpshithrerange_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(setpshithrerange, 0222, NULL, setpshithrerange_store);
+static DEVICE_ATTR(setpshithrerange, 0220, NULL, setpshithrerange_store);
 
 
 static ssize_t disppsthrerange_show(struct device *dev,
@@ -5260,13 +5711,63 @@ static ssize_t disppsthrerange_show(struct device *dev,
 		return -EPERM;
 	}
 
-	ret = snprintf(buf, 1 * sizeof(buf), "%d %d\n", rdback_lo, rdback_hi);
+	ret = snprintf(buf, PAGE_SIZE, "%d %d\n", rdback_lo, rdback_hi);
 
 	return ret;
 }
 
 static DEVICE_ATTR(disppsthrerange, 0444, disppsthrerange_show, NULL);
 
+static ssize_t ltr559_reg_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+  int i, len = 0;
+  int reg[] = {0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,0x8d,0x8e,
+  0x8f,0x90,0x91,0x92,0x93,0x94,0x95,0x97,0x98,0x99,0x9a,0x9e,0xA0};
+  uint8_t buffer[4];
+  for (i=0;i<28;i++)
+  {
+     buffer[0]=reg[i];
+     I2C_Read(buffer,1);
+     len += snprintf(buf+len,PAGE_SIZE-len, "reg:0x%04X value:0x%04X\n",reg[i],buffer[0]);
+  }
+ return len;  
+}
+
+static ssize_t ltr559_reg_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,size_t count)
+{
+  	int ret,value;
+	uint8_t buffer[4];
+	unsigned int reg;
+	struct ltr559_data *ltr559 = sensor_info;
+
+	if(!sensor_info)
+	{
+		dev_dbg(&ltr559->i2c_client->dev,"ltr559_obj is null!!\n");
+		return 0;
+	}
+	
+	if(2 == sscanf(buf, "%x %x ", &reg,&value))
+	{ 
+		buffer[0]=reg;
+		buffer[1]=value;
+		I2C_Read(buffer,1);
+		dev_dbg(&ltr559->i2c_client->dev,"before write reg: %d, reg_value = %d  write value=%d\n", reg,buffer[0],value);
+		buffer[0]=reg;
+		buffer[1]=value;
+		ret=I2C_Write(buffer,2);
+		I2C_Read(buffer,1);
+		dev_dbg(&ltr559->i2c_client->dev,"after write reg: %d, reg_value = %d\n", reg,buffer[0]);
+	}
+	else
+	{
+		dev_dbg(&ltr559->i2c_client->dev,"invalid content: '%s', length = %d\n", buf, count);
+	}
+	return count;   
+}
+
+static DEVICE_ATTR(ltr559_reg, 0666, ltr559_reg_show, ltr559_reg_store);
 
 static void sysfs_register_device(struct i2c_client *client)
 {
@@ -5279,6 +5780,15 @@ static void sysfs_register_device(struct i2c_client *client)
 	rc += device_create_file(&client->dev, &dev_attr_setwinfac3);*/
 	rc += device_create_file(&client->dev, &dev_attr_psadcsaturationBit);
 	rc += device_create_file(&client->dev, &dev_attr_ltr559help);
+	rc += device_create_file(&client->dev, &dev_attr_ltr559_reg);
+	/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+	#if 0
+	rc += device_create_file(&client->dev, &dev_attr_status);
+	rc += device_create_file(&client->dev, &dev_attr_ps_run_calibration);
+	rc += device_create_file(&client->dev, &dev_attr_ps_default_crosstalk);
+	rc += device_create_file(&client->dev, &dev_attr_ps_cal_result);
+	#endif
+	/*add Prox sensor calibration end by jiangchong,2015\01\07*/
 	rc += device_create_file(&client->dev, &dev_attr_enable_als_sensor);
 	rc += device_create_file(&client->dev, &dev_attr_alsswresetsetup);
 	rc += device_create_file(&client->dev, &dev_attr_alsgainsetup);
@@ -5409,9 +5919,9 @@ err_ps_register_input_device:
 }
 
 
-static uint8_t _check_part_id(struct ltr559_data *ltr559)
+static int _check_part_id(struct ltr559_data *ltr559)
 {
-	uint8_t ret;
+	int ret;
 	uint8_t buffer[2];
 
 	buffer[0] = ltr559_PART_ID;
@@ -5510,6 +6020,15 @@ static int ltr559_init_device(struct ltr559_data *ltr559)
 
 	return ret;
 
+	/*calirbation*/
+	#if 0
+	if (ltr559->platform_data->default_cal) {
+		ltr559_set_ps_threshold_adding_cross_talk(ltr559->i2c_client,
+				ltr559->cross_talk);
+	}
+	#endif
+	ltr559->ps_detection = 0; /* initial value = far*/
+
 err_out2:
 	free_irq(ltr559->irq, ltr559);
 	gpio_free(ltr559->gpio_int_no);
@@ -5583,10 +6102,12 @@ static int ltr559_setup(struct ltr559_data *ltr559)
 
 	/* Enable interrupts on the device and clear only when status is read */
 #if ACT_INTERRUPT
+/* @modify by zte. ALS polling mode,proximify for interrupt mode,start */
 	ret = _ltr559_set_bit(ltr559->i2c_client,
 			SET_BIT, ltr559_INTERRUPT, INT_MODE_ALSPS_TRIG);
 	/*ret = _ltr559_set_bit(ltr559->i2c_client, SET_BIT,
 				ltr559_INTERRUPT, INT_MODE_PS_TRIG);*/
+/* @modify by zte. ALS polling mode, proximify for interrupt mode, end*/
 #else
 	ret = _ltr559_set_bit(ltr559->i2c_client, SET_BIT,
 						ltr559_INTERRUPT, INT_MODE_00);
@@ -5654,7 +6175,7 @@ static int ltr559_enable_als_sensor(struct i2c_client *client, int val)
 
 			if (pdata->power_on)
 				pdata->power_on(true);
-
+            
 			rc = ltr559_init_device(data);
 			if (rc) {
 				dev_err(&client->dev, "Failed to setup ltr559\n");
@@ -5665,6 +6186,11 @@ static int ltr559_enable_als_sensor(struct i2c_client *client, int val)
 		if (data->enable_als_sensor == 0) {
 			data->enable_als_sensor = 1;
 			rc = als_mode_setup((uint8_t)val, data);
+			//{
+				//int status;
+				//status = i2c_smbus_read_byte_data(client,ltr559_ALS_PS_STATUS);
+				//pr_err("%s: LTR559_STATUS_REG=%2d\n",__func__, status);				
+			//}				
 			if (rc) {
 				dev_err(&client->dev, "Failed to setup ltr559\n");
 				return rc;
@@ -5729,6 +6255,13 @@ static int ltr559_enable_ps_sensor(struct i2c_client *client, int val)
 		if (data->enable_ps_sensor == 0) {
 			data->enable_ps_sensor = 1;
 			rc = ps_mode_setup((uint8_t)val, data);
+			//ltr559_calibrate_dial();
+			//printk("dail calibration begin!!");
+			//{
+				//int status;
+				//status = i2c_smbus_read_byte_data(client,ltr559_ALS_PS_STATUS);
+				//pr_err("%s: LTR559_STATUS_REG=%2d\n",__func__, status);				
+			//}	
 			if (rc) {
 				dev_err(&client->dev, "Failed to setup ltr559\n");
 				return rc;
@@ -5742,6 +6275,14 @@ static int ltr559_enable_ps_sensor(struct i2c_client *client, int val)
 			return rc;
 		}
 	}
+	
+    /*calirbation*/
+    #if 0
+    if (data->platform_data->default_cal) {
+        ltr559_set_ps_threshold_adding_cross_talk(
+                client, data->cross_talk);
+    }
+    #endif
 
 	/* Vote off  regulators if both light and prox sensor are off */
 	if ((data->enable_als_sensor == 0) &&
@@ -5783,9 +6324,236 @@ static int ltr559_ps_set_enable(struct sensors_classdev *sensors_cdev,
 	return ltr559_enable_ps_sensor(data->i2c_client, enable);
 }
 
+/* @added by zte. ALS polling mode, start*/
+static int ltr559_set_als_poll_delay(struct i2c_client *client,
+		unsigned int val)
+{	
+
+	struct ltr559_data *als_ps = i2c_get_clientdata(client);
+	
+//	int ret;
+//	int poll_delay = 0;
+// 	unsigned long flags;
+	//APS_DBG("%s, delay=%d ms\n", __func__, val);
+
+	if (val < 100 )//100 ms
+		val = 100;	
+	
+	als_ps->als_poll_delay = val;
+	
+	if (als_ps->enable_als_sensor == 1)//grace modified in 2013.10.09
+	{
+	
+	/* we need this polling timer routine for sunlight canellation */
+	//spin_lock_irqsave(&als_ps->update_lock.wait_lock, flags); 
+		
+	/*
+	 * If work is already scheduled then subsequent schedules will not
+	 * change the scheduled time that's why we have to cancel it first.
+	 */
+	cancel_delayed_work(&als_ps->als_dwork);
+	flush_delayed_work(&als_ps->als_dwork);
+	queue_delayed_work(als_ps->workqueue,
+			&als_ps->als_dwork,
+			msecs_to_jiffies(als_ps->als_poll_delay));
+			
+	//spin_unlock_irqrestore(&als_ps->update_lock.wait_lock, flags);	
+	
+	}
+	return 0;
+}
+
+static int ltr559_als_poll_delay(struct sensors_classdev *sensors_cdev,
+		unsigned int delay_msec)
+{
+	struct ltr559_data *data = container_of(sensors_cdev,
+			struct ltr559_data, als_cdev);
+	ltr559_set_als_poll_delay(data->i2c_client, delay_msec);
+	return 0;
+}
+/* @added by zte. ALS polling mode, end*/
+
+#if 0
+static void check_prox_mean(int prox_mean ,int *detection_threshold, int *hsyteresis_threshold)
+{
+    int prox_threshold_hi_param, prox_threshold_lo_param;
+	
+	if(prox_mean <= 80)
+	{
+        prox_threshold_hi_param = prox_mean * 20 / 10 ;
+		prox_threshold_lo_param = prox_mean * 16 / 10 ;
+	}
+	else if(prox_mean > 80 && prox_mean <= 300)
+	{
+		prox_threshold_hi_param = prox_mean * 15 / 10;
+		prox_threshold_lo_param = prox_mean * 13 / 10;
+	}
+	else if(prox_mean > 300)
+	{
+        prox_threshold_hi_param = prox_mean * 12 / 10;
+		prox_threshold_lo_param = prox_mean * 11 / 10;
+
+		if(prox_threshold_hi_param > 2000)
+		{
+			prox_threshold_hi_param = 1900;
+			prox_threshold_lo_param = 1500;
+		}
+	}
+/*
+	if(prox_threshold_hi_param < 100)
+	{
+		prox_threshold_hi_param = 200;
+		prox_threshold_lo_param = 150;
+	}
+*/
+	*detection_threshold = prox_threshold_hi_param;
+	*hsyteresis_threshold = prox_threshold_lo_param;
+
+	//APS_DBG("cross_talk=%d, high_threshold=%d, low_threshold=%d\n", prox_mean, prox_threshold_hi_param,prox_threshold_lo_param);
+}
+
+
+
+//calibrate when dial
+static int ltr559_calibrate_dial(void)
+{
+    struct ltr559_data *data = sensor_info;
+    int i, temp_pdata[10];
+    int cross_talk, sum, max, min;
+
+    //APS_DBG("%s, in\n",__func__);
+    if(NULL == data)
+    {
+        //APS_DBG("ltr559_calibrate, data is NULL!\n");
+        return -1;
+    }
+    
+    mdelay(100);
+    
+    sum = 0;
+    max = 0;
+    min = 0XFFFF;
+	for (i = 0; i < 3; i++) {
+		mdelay(20);
+		//mutex_lock(&data->update_lock);
+		temp_pdata[i] = read_ps_adc_value(data);
+		//mutex_unlock(&data->update_lock);
+
+		sum += temp_pdata[i];
+		if(max < temp_pdata[i]) 
+		{ 
+		    max = temp_pdata[i];
+		}
+		if(min > temp_pdata[i]) 
+		{ 
+		    min = temp_pdata[i];
+		}
+	}
+
+	cross_talk = sum / 3;
+
+	//APS_DBG("%s,cross_talk=%d, max=%d, min=%d\n", __FUNCTION__, cross_talk, max, min);
+
+    check_prox_mean(cross_talk, &ltr559_ps_detection_threshold, &ltr559_ps_hsyteresis_threshold);
+	data->default_ps_highthresh = ltr559_ps_detection_threshold;
+	data->default_ps_lowthresh = ltr559_ps_hsyteresis_threshold;
+    set_ps_range(data->default_ps_lowthresh,data->default_ps_highthresh, LO_N_HI_LIMIT, data);
+
+    return cross_talk;
+}
+
+#endif
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+static int ltr559_ps_calibrate(struct sensors_classdev *sensors_cdev,
+		int axis, int apply_now)
+{
+	int i, arry = 0;
+	int temp[3] = { 0 };
+	//int temp = 0;
+	struct ltr559_data *ltr559 = container_of(sensors_cdev,
+			struct ltr559_data, ps_cdev);
+	ltr559->pre_enable_ps = ltr559->enable_ps_sensor;
+	if (!ltr559->enable_ps_sensor)
+		ltr559_enable_ps_sensor(ltr559->i2c_client, 1); 
+	for (i = 0; i < LTR_MAX_CAL; i++) {
+		msleep(100);
+		ltr559->ps_cal_data = i2c_smbus_read_word_data(
+			ltr559->i2c_client,ltr559_PS_DATA_0);
+		if (i < LTR_CAL_SKIP_COUNT)
+			continue;
+		dev_dbg(&ltr559->i2c_client->dev, "ps_cal data = %d\n",
+				ltr559->ps_cal_data);
+		arry = arry + ltr559->ps_cal_data;
+	}
+	arry = arry / (LTR_MAX_CAL - LTR_CAL_SKIP_COUNT); 
+	//if (axis == AXIS_THRESHOLD_H)
+		//temp[0] = arry;
+	//else if (axis == AXIS_THRESHOLD_L)
+		//temp[1] = arry;
+	//else if (axis == AXIS_BIAS)
+		//temp[2] = arry;
+		temp[0]=arry+ADD_TO_CROSS_TALK;
+		temp[1]=temp[0]-SUB_FROM_PS_THRESHOLD;
+		temp[2]=arry;
+
+	if (apply_now) {
+		ltr559->ps_cal_params[0] = temp[0];
+		ltr559->ps_cal_params[1] = temp[1];
+		ltr559->ps_cal_params[2] = temp[2];
+		//ltr559_ps_get_calibrate_data(ltr559);
+	}
+	printk("ltr559 result is %d,%d,%d\n",ltr559->ps_cal_params[0],ltr559->ps_cal_params[1],ltr559->ps_cal_params[2]);
+	memset(ltr559->calibrate_buf, 0 , sizeof(ltr559->calibrate_buf));
+	snprintf(ltr559->calibrate_buf, sizeof(ltr559->calibrate_buf),
+			"%d,%d,%d", temp[0], temp[1], temp[2]);
+	sensors_cdev->params = ltr559->calibrate_buf;
+	if (!ltr559->pre_enable_ps)
+		ltr559_enable_ps_sensor(ltr559->i2c_client, 0);
+	return 0;
+}
+
+static int ltr559_ps_write_calibrate(struct sensors_classdev *sensors_cdev,
+		struct cal_result_t *cal_result)
+{
+	struct ltr559_data *ltr559 = container_of(sensors_cdev,
+			struct ltr559_data, ps_cdev);
+	int rc;
+	//ltr559->ps_cal_params[0] = cal_result->threshold_h;
+	//ltr559->ps_cal_params[1] = cal_result->threshold_l;
+	//ltr559->ps_cal_params[2] = cal_result->bias;
+	//ltr559_ps_get_calibrate_data(ltr559);
+	cal_result->threshold_h = ltr559->ps_cal_params[0];
+	cal_result->threshold_l = ltr559->ps_cal_params[1];
+	cal_result->bias = ltr559->ps_cal_params[2];
+	rc = set_ps_range(cal_result->threshold_l,cal_result->threshold_h,LO_N_HI_LIMIT,ltr559);
+	return rc;
+}
+
+
+#if 0
+static int ltr559_ps_get_calibrate_data(struct ltr559_data *ltr559)
+{
+	if (ltr559->ps_cal_params[2]) {
+		ltr559->ps_hysteresis_threshold =
+			ltr559_ps_hsyteresis_threshold
+			+ ltr559->ps_cal_params[2];
+		ltr559->ps_threshold = ltr559_ps_detection_threshold
+				+ ltr559->ps_cal_params[2];
+	} else if (ltr559->ps_cal_params[0] && ltr559->ps_cal_params[1]) {
+		ltr559_ps_detection_threshold = ltr559->ps_cal_params[0];
+		ltr559->ps_threshold = ltr559->ps_cal_params[0];
+		ltr559_ps_hsyteresis_threshold = ltr559->ps_cal_params[1];
+		ltr559->ps_hysteresis_threshold = ltr559->ps_cal_params[1];
+	}
+	return 0;
+}
+#endif
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
+
+
 static int ltr559_suspend(struct device *dev)
 {
-	/*int ret;*/
+	int ret;
 	struct i2c_client *client = to_i2c_client(dev);
 	struct ltr559_data *data = i2c_get_clientdata(client);
 
@@ -5800,13 +6568,13 @@ static int ltr559_suspend(struct device *dev)
 	data->als_enable_state = data->enable_als_sensor;
 	data->ps_enable_state = data->enable_ps_sensor;
 
-/*	if (data->ps_enable_state) {
+	if (data->ps_enable_state) {
 		ret = enable_irq_wake(data->irq);
 		if (ret)
 			pr_info("%s: enable_irq_wake(%d) failed, err=(%d)\n",
 				__func__, data->irq, ret);
 	}
-*/
+
 #if SUPPORT_AUTO_BACKLIGHT
 	if (data->als_enable_state) {
 		ret = ltr559_enable_als_sensor(data->i2c_client, 0);
@@ -5821,7 +6589,7 @@ static int ltr559_suspend(struct device *dev)
 
 static int ltr559_resume(struct device *dev)
 {
-	/*int ret;*/
+	int ret;
 	struct i2c_client *client = to_i2c_client(dev);
 	struct ltr559_data *data = i2c_get_clientdata(client);
 
@@ -5839,12 +6607,12 @@ static int ltr559_resume(struct device *dev)
 	}
 #endif
 
-/*	if (data->ps_enable_state) {
+if (data->ps_enable_state) {
 		ret = disable_irq_wake(data->irq);
 		if (ret)
 			pr_info("%s: disable_irq_wake(%d) failed, err=(%d)\n",
 				__func__, data->irq, ret);
-	}*/
+	}
 
 	return 0;
 }
@@ -5903,20 +6671,20 @@ static int ltr559_probe(struct i2c_client *client,
 	}
 
 	platdata = kzalloc(sizeof(*platdata), GFP_KERNEL);
-	if (!platdata) {
-		dev_err(&client->dev,
+		if (!platdata) {
+				dev_err(&client->dev,
 				"failed to allocate memory for platform data\n");
-		return -ENOMEM;
-	}
-	if (client->dev.of_node) {
-		memset(platdata, 0 , sizeof(*platdata));
-		ret = ltr559_parse_dt(&client->dev, platdata);
-		if (ret) {
-			dev_err(&client->dev,
-				"Unable to parse platfrom data err=%d\n", ret);
-			return ret;
+				return -ENOMEM;
 		}
-	}
+		if (client->dev.of_node) {
+				memset(platdata, 0 , sizeof(*platdata));
+				ret = ltr559_parse_dt(&client->dev, platdata);
+				if (ret) {
+						dev_err(&client->dev,
+				"Unable to parse platfrom data err=%d\n", ret);
+						return ret;
+				}
+		}
 
 	/* Global pointer for this device */
 	sensor_info = ltr559;
@@ -5946,6 +6714,20 @@ static int ltr559_probe(struct i2c_client *client,
 	ltr559->default_ps_highthresh = platdata->pfd_ps_highthresh;
 	ltr559->enable_als_sensor = 0;
 	ltr559->enable_ps_sensor = 0;
+
+	/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
+	#if 0
+	if (ltr559_cross_talk_val > 0 && ltr559_cross_talk_val < 1000) {
+		ltr559->cross_talk = ltr559_cross_talk_val;
+	} else {
+		/*
+		 * default value: Get the cross-talk value from the devicetree.
+		 * This value is saved during the cross-talk calibration
+		 */
+		ltr559->cross_talk = platdata->cross_talk;
+	}
+	#endif
+	/*add Prox sensor calibration end by jiangchong,2015\01\07*/
 
 	if (_check_part_id(ltr559) < 0) {
 		dev_err(&ltr559->i2c_client->dev,
@@ -5988,20 +6770,37 @@ static int ltr559_probe(struct i2c_client *client,
 		"%s: Setup Fail...\n", __func__);
 		goto err_ltr559_setup;
 	}
-
+/*@added by zte,als polling mode,start*/
+	INIT_DELAYED_WORK(&ltr559->als_dwork, ltr559_als_polling_work_handler); 
+/*@added by zte,als polling mode,end*/
 	/* Register the sysfs files */
 	sysfs_register_device(client);
 	/*sysfs_register_als_device(client, &ltr559->als_input_dev->dev);*/
 	/*sysfs_register_ps_device(client, &ltr559->ps_input_dev->dev);*/
 
+/*add Prox sensor calibration begin by jiangchong,2015\01\07*/
 	/* Register to sensors class */
 	ltr559->als_cdev = sensors_light_cdev;
 	ltr559->als_cdev.sensors_enable = ltr559_als_set_enable;
-	ltr559->als_cdev.sensors_poll_delay = NULL;
-
+/*@added by zte,als polling mode,start*/
+	ltr559->als_cdev.sensors_poll_delay = ltr559_als_poll_delay;//NULL
+/*@added by zte,als polling mode,end*/
+	memset(&ltr559->als_cdev.cal_result, 0,
+			sizeof(ltr559->als_cdev.cal_result));
 	ltr559->ps_cdev = sensors_proximity_cdev;
 	ltr559->ps_cdev.sensors_enable = ltr559_ps_set_enable;
-	ltr559->ps_cdev.sensors_poll_delay = NULL,
+	ltr559->ps_cdev.sensors_poll_delay = NULL;
+    if (platdata->default_cal) {
+            ltr559->ps_cdev.sensors_calibrate = NULL;
+            ltr559->ps_cdev.sensors_write_cal_params = NULL;
+    } else {
+            ltr559->ps_cdev.sensors_calibrate = ltr559_ps_calibrate;
+		    printk("ltr559 ps cal(): start!!!!!!!\n"); 
+            ltr559->ps_cdev.sensors_write_cal_params =
+                        ltr559_ps_write_calibrate;
+    }
+    memset(&ltr559->ps_cdev.cal_result, 0 , sizeof(ltr559->ps_cdev.cal_result));
+/*add Prox sensor calibration end by jiangchong,2015\01\07*/
 
 	ret = sensors_classdev_register(&client->dev, &ltr559->als_cdev);
 	if (ret) {

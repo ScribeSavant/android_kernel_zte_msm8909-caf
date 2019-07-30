@@ -205,7 +205,6 @@ static int snd_usb_create_stream(struct snd_usb_audio *chip, int ctrlif, int int
 	if (! snd_usb_parse_audio_interface(chip, interface)) {
 		usb_set_interface(dev, interface, 0); /* reset the current interface */
 		usb_driver_claim_interface(&usb_audio_driver, iface, (void *)-1L);
-		return -EINVAL;
 	}
 
 	return 0;
@@ -595,6 +594,7 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 {
 	struct snd_card *card;
 	struct list_head *p, *n;
+	struct usb_mixer_interface *mixer;
 
 	if (chip == (void *)-1L)
 		return;
@@ -622,7 +622,8 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 		}
 		/* release mixer resources */
 		list_for_each(p, &chip->mixer_list) {
-			snd_usb_mixer_disconnect(p);
+			mixer = list_entry(p, struct usb_mixer_interface, list);
+			snd_usb_mixer_disconnect(mixer);
 		}
 		usb_chip[chip->index] = NULL;
 		mutex_unlock(&register_mutex);

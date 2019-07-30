@@ -34,6 +34,7 @@
 #include <linux/device_cgroup.h>
 #include <linux/fs_struct.h>
 #include <linux/posix_acl.h>
+#include <linux/hash.h>
 #include <asm/uaccess.h>
 
 #include "internal.h"
@@ -471,6 +472,24 @@ void path_put(const struct path *path)
 	mntput(path->mnt);
 }
 EXPORT_SYMBOL(path_put);
+
+/**
+ * path_connected - Verify that a path->dentry is below path->mnt.mnt_root
+ * @path: nameidate to verify
+ *
+ * Rename can sometimes move a file or directory outside of a bind
+ * mount, path_connected allows those cases to be detected.
+ */
+static bool path_connected(const struct path *path)
+{
+	struct vfsmount *mnt = path->mnt;
+
+	/* Only bind mounts can have disconnected paths */
+	if (mnt->mnt_root == mnt->mnt_sb->s_root)
+		return true;
+
+	return is_subdir(path->dentry, mnt->mnt_root);
+}
 
 /*
  * Path walking has 2 modes, rcu-walk and ref-walk (see
@@ -1147,6 +1166,8 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 				goto failed;
 			nd->path.dentry = parent;
 			nd->seq = seq;
+			if (unlikely(!path_connected(&nd->path)))
+				goto failed;
 			break;
 		}
 		if (!follow_up_rcu(&nd->path))
@@ -1230,7 +1251,7 @@ static void follow_mount(struct path *path)
 	}
 }
 
-static void follow_dotdot(struct nameidata *nd)
+static int follow_dotdot(struct nameidata *nd)
 {
 	set_root(nd);
 
@@ -1245,6 +1266,10 @@ static void follow_dotdot(struct nameidata *nd)
 			/* rare case of legitimate dget_parent()... */
 			nd->path.dentry = dget_parent(nd->path.dentry);
 			dput(old);
+			if (unlikely(!path_connected(&nd->path))) {
+				path_put(&nd->path);
+				return -ENOENT;
+			}
 			break;
 		}
 		if (!follow_up(&nd->path))
@@ -1252,6 +1277,7 @@ static void follow_dotdot(struct nameidata *nd)
 	}
 	follow_mount(&nd->path);
 	nd->inode = nd->path.dentry->d_inode;
+	return 0;
 }
 
 /*
@@ -1475,7 +1501,7 @@ static inline int handle_dots(struct nameidata *nd, int type)
 			if (follow_dotdot_rcu(nd))
 				return -ECHILD;
 		} else
-			follow_dotdot(nd);
+			return follow_dotdot(nd);
 	}
 	return 0;
 }
@@ -1541,7 +1567,8 @@ static inline int walk_component(struct nameidata *nd, struct path *path,
 
 	if (should_follow_link(inode, follow)) {
 		if (nd->flags & LOOKUP_RCU) {
-			if (unlikely(unlazy_walk(nd, path->dentry))) {
+			if (unlikely(nd->path.mnt != path->mnt ||
+				     unlazy_walk(nd, path->dentry))) {
 				err = -ECHILD;
 				goto out_err;
 			}
@@ -1647,8 +1674,7 @@ static inline int can_lookup(struct inode *inode)
 
 static inline unsigned int fold_hash(unsigned long hash)
 {
-	hash += hash >> (8*sizeof(int));
-	return hash;
+	return hash_64(hash, 32);
 }
 
 #else	/* 32-bit case */
@@ -2829,7 +2855,8 @@ finish_lookup:
 
 	if (should_follow_link(inode, !symlink_ok)) {
 		if (nd->flags & LOOKUP_RCU) {
-			if (unlikely(unlazy_walk(nd, path->dentry))) {
+			if (unlikely(nd->path.mnt != path->mnt ||
+				     unlazy_walk(nd, path->dentry))) {
 				error = -ECHILD;
 				goto out;
 			}
@@ -2895,6 +2922,10 @@ opened:
 			goto exit_fput;
 	}
 out:
+	if (unlikely(error > 0)) {
+		WARN_ON(1);
+		error = -EINVAL;
+	}
 	if (got_write)
 		mnt_drop_write(nd->path.mnt);
 	path_put(&save_parent);
@@ -3802,7 +3833,7 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 {
 	int error;
 	int is_dir = S_ISDIR(old_dentry->d_inode->i_mode);
-	const unsigned char *old_name;
+	struct name_snapshot old_name;
 
 	if (old_dentry->d_inode == new_dentry->d_inode)
  		return 0;
@@ -3821,16 +3852,16 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (!old_dir->i_op->rename)
 		return -EPERM;
 
-	old_name = fsnotify_oldname_init(old_dentry->d_name.name);
+	take_dentry_name_snapshot(&old_name, old_dentry);
 
 	if (is_dir)
 		error = vfs_rename_dir(old_dir,old_dentry,new_dir,new_dentry);
 	else
 		error = vfs_rename_other(old_dir,old_dentry,new_dir,new_dentry);
 	if (!error)
-		fsnotify_move(old_dir, new_dir, old_name, is_dir,
+		fsnotify_move(old_dir, new_dir, old_name.name, is_dir,
 			      new_dentry->d_inode, old_dentry);
-	fsnotify_oldname_free(old_name);
+	release_dentry_name_snapshot(&old_name);
 
 	return error;
 }

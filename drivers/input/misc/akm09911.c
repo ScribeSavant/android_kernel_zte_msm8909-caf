@@ -127,7 +127,7 @@ static struct sensors_classdev sensors_cdev = {
 	.max_range = "1228.8",
 	.resolution = "0.6",
 	.sensor_power = "0.35",
-	.min_delay = 10000,
+	.min_delay = 20000,
 	.max_delay = 10000,
 	.fifo_reserved_event_count = 0,
 	.fifo_max_event_count = 0,
@@ -1767,13 +1767,13 @@ static int akm_pinctrl_init(struct akm_compass_data *akm)
 		return PTR_ERR(akm->pinctrl);
 	}
 
-	akm->pin_default = pinctrl_lookup_state(akm->pinctrl, "default");
+	akm->pin_default = pinctrl_lookup_state(akm->pinctrl, "ak09911_default");
 	if (IS_ERR_OR_NULL(akm->pin_default)) {
 		dev_err(&client->dev, "Failed to look up default state\n");
 		return PTR_ERR(akm->pin_default);
 	}
 
-	akm->pin_sleep = pinctrl_lookup_state(akm->pinctrl, "sleep");
+	akm->pin_sleep = pinctrl_lookup_state(akm->pinctrl, "ak09911_sleep");
 	if (IS_ERR_OR_NULL(akm->pin_sleep)) {
 		dev_err(&client->dev, "Failed to look up sleep state\n");
 		return PTR_ERR(akm->pin_sleep);
@@ -1798,7 +1798,7 @@ static int akm_report_data(struct akm_compass_data *akm)
 
 	if (STATUS_ERROR(dat_buf[8])) {
 		dev_warn(&akm->i2c->dev, "Status error. Reset...\n");
-		AKECS_Reset(akm, 0);
+		//AKECS_Reset(akm, 0);
 		return -EIO;
 	}
 
@@ -2347,7 +2347,7 @@ static const struct dev_pm_ops akm_compass_pm_ops = {
 };
 
 static struct of_device_id akm09911_match_table[] = {
-	{ .compatible = "ak,ak09911", },
+	{ .compatible = "akm,ak09911", },
 	{ .compatible = "akm,akm09911", },
 	{ },
 };

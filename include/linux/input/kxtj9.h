@@ -57,5 +57,7 @@ struct kxtj9_platform_data {
 	void (*exit)(void);
 	int (*power_on)(void);
 	int (*power_off)(void);
+
+	int gpio_int1;
 };
 #endif  /* __KXTJ9_H__ */

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, 2016, 2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,7 +38,6 @@
 #define RT_PROXY_DAI_002_RX	0xF1
 #define RT_PROXY_DAI_002_TX	0xE1
 #define VIRTUAL_ID_TO_PORTID(val) ((val & 0xF) | 0x2000)
-
 enum {
 	IDX_PRIMARY_I2S_RX = 0,
 	IDX_PRIMARY_I2S_TX = 1,
@@ -91,6 +90,7 @@ enum {
 	IDX_GLOBAL_CFG,
 	IDX_AUDIO_PORT_ID_I2S_RX,
 	IDX_AFE_PORT_ID_SECONDARY_MI2S_RX_SD1,
+	IDX_AFE_LOOPBACK_TX,
 	AFE_MAX_PORTS
 };
 
@@ -198,6 +198,7 @@ int afe_convert_virtual_to_portid(u16 port_id);
 int afe_pseudo_port_start_nowait(u16 port_id);
 int afe_pseudo_port_stop_nowait(u16 port_id);
 int afe_set_lpass_clock(u16 port_id, struct afe_clk_cfg *cfg);
+int afe_set_lpass_clock_v2(u16 port_id, struct afe_clk_set *cfg);
 int afe_set_digital_codec_core_clock(u16 port_id,
 			struct afe_digital_clk_cfg *cfg);
 int afe_set_lpass_internal_digital_codec_clock(u16 port_id,

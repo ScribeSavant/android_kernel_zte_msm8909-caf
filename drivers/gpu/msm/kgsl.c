@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -556,6 +556,16 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 	struct kgsl_device *device = dev_priv->device;
 	char name[64];
 	int ret = 0, id;
+	struct kgsl_process_private  *proc_priv = dev_priv->process_priv;
+
+	if (atomic_read(&proc_priv->ctxt_count) > KGSL_MAX_CONTEXTS_PER_PROC) {
+		KGSL_DRV_ERR(device,
+			"Per process context limit reached for pid %u",
+			dev_priv->process_priv->pid);
+		return -ENOSPC;
+	}
+
+	atomic_inc(&proc_priv->ctxt_count);
 
 	id = _kgsl_get_context_id(device);
 	if (id == -ENOSPC) {
@@ -576,7 +586,7 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 			KGSL_DRV_INFO(device,
 				"cannot have more than %zu contexts due to memstore limitation\n",
 				KGSL_MEMSTORE_MAX);
-
+		atomic_dec(&proc_priv->ctxt_count);
 		return id;
 	}
 
@@ -607,6 +617,7 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 
 out:
 	if (ret) {
+		atomic_dec(&proc_priv->ctxt_count);
 		write_lock(&device->context_lock);
 		idr_remove(&dev_priv->device->context_idr, id);
 		write_unlock(&device->context_lock);
@@ -693,6 +704,7 @@ kgsl_context_destroy(struct kref *kref)
 			device->pwrctrl.constraint.type = KGSL_CONSTRAINT_NONE;
 		}
 
+		atomic_dec(&context->proc_priv->ctxt_count);
 		idr_remove(&device->context_idr, context->id);
 		context->id = KGSL_CONTEXT_INVALID;
 	}
@@ -1372,16 +1384,15 @@ kgsl_sharedmem_region_empty(struct kgsl_process_private *private,
 static inline struct kgsl_mem_entry * __must_check
 kgsl_sharedmem_find_id(struct kgsl_process_private *process, unsigned int id)
 {
-	int result = 0;
+	int result;
 	struct kgsl_mem_entry *entry;
 
 	spin_lock(&process->mem_lock);
 	entry = idr_find(&process->mem_idr, id);
-	if (entry)
-		result = kgsl_mem_entry_get(entry);
+	result = kgsl_mem_entry_get(entry);
 	spin_unlock(&process->mem_lock);
 
-	if (!result)
+	if (result == 0)
 		return NULL;
 	return entry;
 }
@@ -3967,7 +3978,8 @@ kgsl_mmap_memstore(struct kgsl_device *device, struct vm_area_struct *vma)
 static void kgsl_gpumem_vm_open(struct vm_area_struct *vma)
 {
 	struct kgsl_mem_entry *entry = vma->vm_private_data;
-	if (!kgsl_mem_entry_get(entry))
+
+	if (kgsl_mem_entry_get(entry) == 0)
 		vma->vm_private_data = NULL;
 }
 
@@ -4604,7 +4616,6 @@ static int _register_device(struct kgsl_device *device)
 
 int kgsl_device_platform_probe(struct kgsl_device *device)
 {
-	int result;
 	int status = -EINVAL;
 	struct resource *res;
 
@@ -4706,11 +4717,6 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 
 	rwlock_init(&device->context_lock);
 
-	result = kgsl_drm_init(device->pdev);
-	if (result)
-		goto error_pwrctrl_close;
-
-
 	setup_timer(&device->idle_timer, kgsl_timer, (unsigned long) device);
 	status = kgsl_create_device_workqueue(device);
 	if (status)
@@ -4810,7 +4816,6 @@ EXPORT_SYMBOL(kgsl_device_platform_remove);
 static void kgsl_core_exit(void)
 {
 	kgsl_events_exit();
-	kgsl_drm_exit();
 	kgsl_cffdump_destroy();
 	kgsl_core_debugfs_close();
 

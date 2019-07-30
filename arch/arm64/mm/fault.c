@@ -32,12 +32,9 @@
 
 #include <asm/exception.h>
 #include <asm/debug-monitors.h>
-#include <asm/esr.h>
 #include <asm/system_misc.h>
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
-
-#include <trace/events/exception.h>
 
 static const char *fault_name(unsigned int esr);
 
@@ -116,8 +113,6 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 {
 	struct siginfo si;
 
-	trace_user_fault(tsk, addr, esr);
-
 	if (show_unhandled_signals && unhandled_signal(tsk, sig) &&
 	    printk_ratelimit()) {
 		pr_info("%s[%d]: unhandled %s (%d) at 0x%08lx, esr 0x%03x\n",
@@ -128,7 +123,6 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 	}
 
 	tsk->thread.fault_address = addr;
-	tsk->thread.fault_code = esr;
 	si.si_signo = sig;
 	si.si_errno = 0;
 	si.si_code = code;
@@ -136,7 +130,7 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 	force_sig_info(sig, &si, tsk);
 }
 
-static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *regs)
+void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
 	struct task_struct *tsk = current;
 	struct mm_struct *mm = tsk->active_mm;
@@ -154,6 +148,8 @@ static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *re
 #define VM_FAULT_BADMAP		0x010000
 #define VM_FAULT_BADACCESS	0x020000
 
+#define ESR_WRITE		(1 << 6)
+#define ESR_CM			(1 << 8)
 #define ESR_LNX_EXEC		(1 << 24)
 
 static int __do_page_fault(struct mm_struct *mm, unsigned long addr,
@@ -222,7 +218,7 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 
 	if (esr & ESR_LNX_EXEC) {
 		vm_flags = VM_EXEC;
-	} else if (esr & ESR_EL1_WRITE) {
+	} else if ((esr & ESR_WRITE) && !(esr & ESR_CM)) {
 		vm_flags = VM_WRITE;
 		mm_flags |= FAULT_FLAG_WRITE;
 	}
@@ -282,6 +278,7 @@ retry:
 			 * starvation.
 			 */
 			mm_flags &= ~FAULT_FLAG_ALLOW_RETRY;
+			mm_flags |= FAULT_FLAG_TRIED;
 			goto retry;
 		}
 	}
@@ -366,6 +363,17 @@ static int __kprobes do_translation_fault(unsigned long addr,
 }
 
 /*
+ * Some section permission faults need to be handled gracefully.  They can
+ * happen due to a __{get,put}_user during an oops.
+ */
+static int do_sect_fault(unsigned long addr, unsigned int esr,
+			 struct pt_regs *regs)
+{
+	do_bad_area(addr, esr, regs);
+	return 0;
+}
+
+/*
  * This abort handler always returns "fault".
  */
 static int do_bad(unsigned long addr, unsigned int esr, struct pt_regs *regs)
@@ -388,12 +396,12 @@ static struct fault_info {
 	{ do_translation_fault,	SIGSEGV, SEGV_MAPERR,	"level 2 translation fault"	},
 	{ do_page_fault,	SIGSEGV, SEGV_MAPERR,	"level 3 translation fault"	},
 	{ do_bad,		SIGBUS,  0,		"reserved access flag fault"	},
-	{ do_page_fault,	SIGSEGV, SEGV_ACCERR,	"level 1 access flag fault"	},
-	{ do_page_fault,	SIGSEGV, SEGV_ACCERR,	"level 2 access flag fault"	},
+	{ do_bad,		SIGSEGV, SEGV_ACCERR,	"level 1 access flag fault"	},
+	{ do_bad,		SIGSEGV, SEGV_ACCERR,	"level 2 access flag fault"	},
 	{ do_page_fault,	SIGSEGV, SEGV_ACCERR,	"level 3 access flag fault"	},
 	{ do_bad,		SIGBUS,  0,		"reserved permission fault"	},
-	{ do_page_fault,	SIGSEGV, SEGV_ACCERR,	"level 1 permission fault"	},
-	{ do_page_fault,	SIGSEGV, SEGV_ACCERR,	"level 2 permission fault"	},
+	{ do_bad,		SIGSEGV, SEGV_ACCERR,	"level 1 permission fault"	},
+	{ do_sect_fault,	SIGSEGV, SEGV_ACCERR,	"level 2 permission fault"	},
 	{ do_page_fault,	SIGSEGV, SEGV_ACCERR,	"level 3 permission fault"	},
 	{ do_bad,		SIGBUS,  0,		"synchronous external abort"	},
 	{ do_bad,		SIGBUS,  0,		"asynchronous external abort"	},
@@ -529,7 +537,7 @@ asmlinkage int __exception do_debug_exception(unsigned long addr,
 	info.si_errno = 0;
 	info.si_code  = inf->code;
 	info.si_addr  = (void __user *)addr;
-	arm64_notify_die("", regs, &info, 0);
+	arm64_notify_die("", regs, &info, esr);
 
 	return 0;
 }

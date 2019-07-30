@@ -1046,7 +1046,12 @@ u64 mdp3_get_panic_lut_cfg(u32 panel_width)
 int mdp3_qos_remapper_setup(struct mdss_panel_data *panel)
 {
 	int rc = 0;
-	u64 panic_config = mdp3_get_panic_lut_cfg(panel->panel_info.xres);
+	u64 panic_config = 0;
+
+        if (!panel)
+                return -EINVAL;
+
+	panic_config = mdp3_get_panic_lut_cfg(panel->panel_info.xres);
 
 	rc = mdp3_clk_update(MDP3_CLK_AHB, 1);
 	rc |= mdp3_clk_update(MDP3_CLK_AXI, 1);
@@ -1055,9 +1060,6 @@ int mdp3_qos_remapper_setup(struct mdss_panel_data *panel)
 		pr_err("fail to turn on MDP core clks\n");
 		return rc;
 	}
-
-	if (!panel)
-		return -EINVAL;
 	/* Program MDP QOS Remapper */
 	MDP3_REG_WRITE(MDP3_DMA_P_QOS_REMAPPER, 0x1A9);
 	MDP3_REG_WRITE(MDP3_DMA_P_WATERMARK_0, 0x0);
@@ -2355,6 +2357,8 @@ static int mdp3_debug_init(struct platform_device *pdev)
 	int rc;
 	struct mdss_data_type *mdata;
 	struct mdss_debug_data *mdd;
+	struct mdss_debug_base *mdp_dbg_blk = NULL;
+	struct mdss_debug_base *vbif_dbg_blk = NULL;
 
 	mdata = devm_kzalloc(&pdev->dev, sizeof(*mdata), GFP_KERNEL);
 	if (!mdata)
@@ -2376,8 +2380,25 @@ static int mdp3_debug_init(struct platform_device *pdev)
 	debugfs_create_file("stat", 0644, mdd->root, mdp3_res,
 				&mdp3_debug_dump_stats_fops);
 
-	rc = mdss_debug_register_base(NULL, mdp3_res->mdp_base ,
-					mdp3_res->mdp_reg_size);
+	/* MDP Debug base registration */
+	rc = mdss_debug_register_base("mdp", mdp3_res->mdp_base,
+			mdp3_res->mdp_reg_size, &mdp_dbg_blk);
+	if (rc)
+		return rc;
+
+	mdss_debug_register_dump_range(pdev, mdp_dbg_blk, "qcom,regs-dump-mdp",
+				"qcom,regs-dump-names-mdp");
+
+	/* VBIF Debug base registration */
+	if (mdp3_res->vbif_base) {
+		rc = mdss_debug_register_base("vbif", mdp3_res->vbif_base,
+				mdp3_res->vbif_reg_size, &vbif_dbg_blk);
+		if (rc)
+			return rc;
+
+		mdss_debug_register_dump_range(pdev, vbif_dbg_blk,
+			"qcom,regs-dump-vbif", "qcom,regs-dump-names-vbif");
+	}
 
 	return rc;
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1132,6 +1132,8 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	/*  Extended IOCTLs  */
 	case RMNET_IOCTL_EXTENDED:
+		if (!ns_capable(dev_net(dev)->user_ns, CAP_NET_ADMIN))
+			return -EPERM;
 		IPAWANDBG("get ioctl: RMNET_IOCTL_EXTENDED\n");
 		if (copy_from_user(&extend_ioctl_data,
 			(u8 *)ifr->ifr_ifru.ifru_data,
@@ -1948,12 +1950,12 @@ static int __init ipa_wwan_init(void)
 
 	atomic_set(&is_initialized, 0);
 	atomic_set(&is_ssr, 0);
-	mutex_init(&add_mux_channel_lock);
-        /* Initialize IPA SSR workqueue */
+	/* Initialize IPA SSR workqueue */
 	ipa_ssr_workqueue = create_singlethread_workqueue("ssr_req");
 	if (!ipa_ssr_workqueue)
 		return -ENOMEM;
 
+	mutex_init(&add_mux_channel_lock);
 	/* Register for Modem SSR */
 	subsys = subsys_notif_register_notifier(SUBSYS_MODEM, &ssr_notifier);
 	if (!IS_ERR(subsys)) {
